@@ -2,7 +2,7 @@
 
 A layered, production-style AML monitoring and case management system.
 Detection and compliance live in `aml_engine.py`; everything else is a thin
-layer that reads from or calls into it — nothing duplicates its rules.
+layer that reads from or calls into it, nothing duplicates its rules.
 
 ## Architecture
 
@@ -25,7 +25,7 @@ aml_engine.py      Detection scenarios + AMLWorkflowManager (the only thing
 **The rule that holds everywhere:** only `AMLWorkflowManager.transition_alert()`
 writes `aml_alerts.status` or inserts into `str_decisions`. Every other file
 either reads, or calls a service method that calls `transition_alert()`. This
-was verified by grep across the whole codebase — see "Compliance audit" below.
+was verified by grep across the whole codebase, see "Compliance audit" below.
 
 ## Routes
 
@@ -52,7 +52,7 @@ the table above is canonical going forward.
 
 ### Part 1 — app.py (Execution Layer)
 Routes match the spec exactly. `app.py` contains no SQL and never calls
-`AMLWorkflowManager.transition_alert()` directly — every action goes through
+`AMLWorkflowManager.transition_alert()` directly, every action goes through
 `AMLService`. Errors are caught as `WorkflowError` and shown via `flash()`.
 
 ### Part 2 — aml_service.py (Service Layer)
@@ -82,14 +82,14 @@ Exposed at `/reports` as HTML, or `/reports?format=json` as raw JSON.
 the brief says "closed as FALSE_POSITIVE / CLOSED_NO_ACTION" as if these were
 one thing. In the real schema they're different fields —
 `FALSE_POSITIVE` is a `closure_reason_code`, `CLOSED_NO_ACTION` is a
-`workflow_status` — and a closure can never be both `CLOSED_SAR` and
+`workflow_status` and a closure can never be both `CLOSED_SAR` and
 `FALSE_POSITIVE` at once. `alert_filter.py` implements suppression on
 `workflow_status = 'CLOSED_NO_ACTION'` (any reason, FALSE_POSITIVE included
 as the headline case), with an optional `closure_reason_codes` parameter to
 narrow it to specific reasons if you want different behavior. Full reasoning
 is in the module docstring.
 
-Wired into `aml_engine.raise_alert()` — suppression is checked before a new
+Wired into `aml_engine.raise_alert()` suppression is checked before a new
 alert is created, so it affects detection, not the UI. Verified: closing an
 alert as `CLOSED_NO_ACTION` and then attempting `raise_alert()` for the same
 `account_id` + `scenario_code` within 30 days returns `None` (suppressed); a
