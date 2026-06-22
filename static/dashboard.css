@@ -1,0 +1,67 @@
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 14px;
+}
+.dashboard-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 18px 20px;
+  border-radius: 10px;
+  text-decoration: none;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  transition:
+    transform 0.1s ease,
+    border-color 0.1s ease;
+}
+.dashboard-tile:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+.tile-count {
+  font-size: 30px;
+  font-weight: 700;
+  color: #fff;
+}
+.tile-label {
+  font-size: 13px;
+  opacity: 0.7;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.tile-open {
+  border-left: 4px solid #58a6ff;
+}
+.tile-under-review {
+  border-left: 4px solid #d29922;
+}
+.tile-escalated {
+  border-left: 4px solid #f85149;
+}
+.tile-closed-sar {
+  border-left: 4px solid #a371f7;
+}
+.tile-closed-no-action {
+  border-left: 4px solid #3fb950;
+}
+.tile-total {
+  border-left: 4px solid #8b949e;
+}
+
+.oldest-open-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.age-badge {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.08);
+  margin-left: 6px;
+}

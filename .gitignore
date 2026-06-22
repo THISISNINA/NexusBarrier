@@ -1,0 +1,17 @@
+# Virtual Environment
+.venv/
+venv/
+env/
+
+# Python caching
+__pycache__/
+*.pyc
+
+# Local Database and Logs
+data/database/
+*.db
+logs/
+*.log
+
+# macOS system files
+.DS_Store

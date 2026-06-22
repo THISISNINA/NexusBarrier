@@ -1,0 +1,207 @@
+{% extends "base.html" %} {% block title %}Welcome{% endblock %}
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='welcome.css') }}" />
+{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Welcome to NexusBarrier AML Monitoring</h1>
+  <p class="subtle">
+    A quick overview before you get started &mdash; what this system watches
+    for, how an alert moves through review, and what each role is responsible
+    for.
+  </p>
+</div>
+
+<section class="panel">
+  <h2>What this system does</h2>
+  <p>
+    NexusBarrier continuously screens transaction activity against
+    <strong>10 detection scenarios</strong> &mdash; pattern-based rules covering
+    structuring, high-risk jurisdictions, PEP exposure, sanctions screening,
+    dormant-account reactivation, rapid fund movement, and more. When activity
+    matches a scenario's threshold, an <strong>alert</strong>
+    is raised automatically and enters the review queue below.
+  </p>
+  <p class="field-hint">
+    This is a local, air-gapped instance &mdash; no data leaves this machine,
+    and the sanctions list / scenario thresholds are illustrative, not a live
+    regulatory feed. See the scenario reference at the bottom of this page for
+    exact trigger logic.
+  </p>
+</section>
+
+<section class="panel">
+  <h2>How an alert moves through the system</h2>
+  <div class="workflow-strip">
+    <div class="workflow-step">
+      <span class="badge status-open">OPEN</span>
+      <p>Alert raised automatically. Sitting in the queue, unclaimed.</p>
+    </div>
+    <div class="workflow-arrow">&rarr;</div>
+    <div class="workflow-step">
+      <span class="badge status-under_review">UNDER_REVIEW</span>
+      <p>An analyst (or MLRO) claims it and begins investigating.</p>
+    </div>
+    <div class="workflow-arrow">&rarr;</div>
+    <div class="workflow-step">
+      <span class="badge status-escalated">ESCALATED</span>
+      <p>
+        Analyst escalates for second-line sign-off, <em>or</em> closes it
+        directly if no escalation is needed.
+      </p>
+    </div>
+    <div class="workflow-arrow">&rarr;</div>
+    <div class="workflow-step">
+      <span class="badge status-closed_sar">CLOSED_SAR</span>
+      <span class="badge status-closed_no_action">CLOSED_NO_ACTION</span>
+      <p>
+        Terminal state. A SAR was filed (with a goAML reference), or the alert
+        was closed with no action &mdash; either way, a documented narrative is
+        required.
+      </p>
+    </div>
+  </div>
+  <p class="field-hint" style="margin-top: 14px">
+    An MLRO can also send an <strong>ESCALATED</strong> alert back to
+    <strong>UNDER_REVIEW</strong> if it needs more investigation before sign-off
+    &mdash; the flow isn't strictly one-directional.
+  </p>
+</section>
+
+<section class="panel">
+  {% if current_role == 'MLRO' %}
+  <h2>Your role: MLRO (second-line review)</h2>
+  <p>
+    As MLRO, you provide second-line oversight on alerts an analyst has already
+    investigated and escalated. Your queues:
+  </p>
+  <ul class="role-list">
+    <li>
+      <strong>Dashboard</strong> &mdash; system-wide status counts and the
+      oldest alert still awaiting action.
+    </li>
+    <li>
+      <strong>All Alerts</strong> &mdash; every alert in the system, any status.
+    </li>
+    <li>
+      <strong>Open Queue (All)</strong> &mdash; OPEN and ESCALATED alerts
+      together, so you're never blind to what's still moving through the analyst
+      tier. You can claim a fresh OPEN alert yourself if needed.
+    </li>
+    <li>
+      <strong>Escalated Queue</strong> &mdash; the full inbox of everything
+      awaiting sign-off, from any analyst.
+    </li>
+    <li>
+      <strong>My Reviews</strong> &mdash; alerts you've personally opened,
+      whether you claimed them yourself or they were escalated to you.
+    </li>
+  </ul>
+  <p>
+    From an alert's detail page you can <strong>close</strong> it (SAR or
+    no-action, with a required narrative),
+    <strong>return it to the analyst</strong> for more work (with a required
+    note), or <strong>create or link a case</strong> to group related alerts on
+    the same account.
+  </p>
+  {% else %}
+  <h2>Your role: L1 Analyst (first-line review)</h2>
+  <p>
+    As an analyst, you're the first line of investigation &mdash; triaging newly
+    raised alerts, documenting findings, and deciding whether to close an alert
+    directly or escalate it for MLRO sign-off. Your queues:
+  </p>
+  <ul class="role-list">
+    <li>
+      <strong>Dashboard</strong> &mdash; system-wide status counts and the
+      oldest alert still awaiting action.
+    </li>
+    <li>
+      <strong>All Alerts</strong> &mdash; every alert in the system, any status.
+    </li>
+    <li>
+      <strong>Open Queue</strong> &mdash; unclaimed OPEN alerts awaiting
+      investigation.
+    </li>
+    <li>
+      <strong>My Reviews</strong> &mdash; alerts currently assigned to you
+      (UNDER_REVIEW).
+    </li>
+  </ul>
+  <p>
+    From an alert's detail page you can <strong>claim</strong> it,
+    <strong>close</strong> it (SAR or no-action, with a required narrative),
+    <strong>escalate</strong> it to the MLRO, or
+    <strong>create or link a case</strong> to group related alerts on the same
+    account.
+  </p>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <details class="scenario-reference">
+    <summary>
+      <h2 style="display: inline">
+        Full scenario reference ({{ scenarios|length }} active)
+      </h2>
+      <span class="field-hint" style="margin-left: 8px">click to expand</span>
+    </summary>
+    <table class="data-table" style="margin-top: 16px">
+      <thead>
+        <tr>
+          <th>Scenario</th>
+          <th>Description</th>
+          <th>Typology</th>
+          <th>Threshold</th>
+          <th>Window</th>
+          <th>Default Severity</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in scenarios %}
+        <tr>
+          <td class="mono">{{ s['scenario_code'] }}</td>
+          <td>{{ s['description'] }}</td>
+          <td>{{ s['typology'] }}</td>
+          <td class="mono">
+            {{ "%.2f"|format(s['threshold_value']) if s['threshold_value'] is
+            not none else '—' }}
+          </td>
+          <td class="mono">
+            {{ s['window_days'] ~ ' days' if s['window_days'] else '—' }}
+          </td>
+          <td>
+            <span class="badge severity-{{ s['default_severity']|lower }}"
+              >{{ s['default_severity'] }}</span
+            >
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="field-hint" style="margin-top: 12px">
+      Thresholds shown reflect the currently active rule version for each
+      scenario. If a threshold is changed, this list updates automatically
+      &mdash; the alert detail page for any individual alert always shows the
+      threshold version that was actually in effect when that specific alert
+      fired.
+    </p>
+  </details>
+</section>
+
+<form
+  method="POST"
+  action="{{ url_for('acknowledge_welcome') }}"
+  style="margin-top: 8px"
+>
+  <button
+    type="submit"
+    class="btn btn-primary"
+    style="font-size: 15px; padding: 10px 22px"
+  >
+    Enter the system &rarr;
+  </button>
+</form>
+
+
+{% endblock %}

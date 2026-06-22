@@ -1,0 +1,478 @@
+{% extends "base.html" %} {% block title %} {% if show_my_reviews %} My Active
+Reviews {% elif show_all %} All Alerts {% elif show_escalated %} Escalated Queue
+{% else %} {% if current_role == 'MLRO' %} Open Queue (All) {% else %} Open
+Alert Queue {% endif %} {% endif %} {% endblock %} {% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='alerts.css') }}" />
+{% endblock %} {% block content %}
+<div class="page-header">
+  <h1>
+    {% if show_my_reviews %} My Active Reviews {% elif show_all %} All Alerts {%
+    elif show_escalated %} Escalated Queue {% elif current_role == 'MLRO' %}
+    Open Queue (All) {% else %} Open Alert Queue {% endif %}
+  </h1>
+  <p class="subtle">
+    {% if show_my_reviews %} {% if current_role == 'MLRO' %} Escalated alerts
+    you've personally opened and are actively reviewing as MLRO. {% else %}
+    Alerts currently assigned to <strong>ANALYST_01</strong> for investigation.
+    {% endif %} {% elif show_all %} Every alert in the system regardless of
+    status, most recent first. {% elif show_escalated %} Every alert with status
+    <strong>ESCALATED</strong>, awaiting sign-off from any MLRO (false positive,
+    no-action closure, or confirming a SAR already filed) &mdash; the full
+    inbox, regardless of who's already looked at each one. {% elif current_role
+    == 'MLRO' %} Everything still in motion: alerts <strong>OPEN</strong> and
+    awaiting an analyst, plus alerts <strong>ESCALATED</strong> and awaiting
+    your sign-off &mdash; so you can see the whole pipeline, not just what's
+    already been kicked up to you. {% else %} Alerts with status
+    <strong>OPEN</strong>, awaiting analyst review. {% endif %}
+  </p>
+</div>
+
+{% if not alerts %}
+<div class="empty-state">
+  {% if show_all %} No alerts exist in the system yet. {% elif show_escalated or
+  (current_role == 'MLRO' and not show_my_reviews) %} No escalated alerts
+  awaiting sign-off. Queue is clear. {% elif show_my_reviews %} No alerts here
+  yet. {% else %} No open alerts. Queue is clear. {% endif %}
+</div>
+{% else %}
+<div class="filter-bar">
+  <div class="filter-field">
+    <label for="f-scenario">Scenario</label>
+    <input
+      type="text"
+      id="f-scenario"
+      placeholder="e.g. STRUCTURING"
+      oninput="filterAlerts()"
+    />
+  </div>
+  <div class="filter-field">
+    <label for="f-severity">Severity</label>
+    <select id="f-severity" onchange="filterAlerts()">
+      <option value="">All</option>
+      <option value="LOW">Low</option>
+      <option value="MEDIUM">Medium</option>
+      <option value="HIGH">High</option>
+    </select>
+  </div>
+  <div class="filter-field">
+    <label for="f-account">Account</label>
+    <input
+      type="text"
+      id="f-account"
+      placeholder="e.g. ACC8739"
+      oninput="filterAlerts()"
+    />
+  </div>
+  <div class="filter-field">
+    <label for="f-trigger-min">Trigger Value &ge;</label>
+    <input
+      type="number"
+      id="f-trigger-min"
+      placeholder="0"
+      oninput="filterAlerts()"
+    />
+  </div>
+  <div class="filter-field">
+    <label for="f-status">Status</label>
+    <select id="f-status" onchange="filterAlerts()">
+      {% set select_all = "selected" if show_all or show_escalated or
+      (current_role == 'MLRO' and not show_my_reviews) or (show_my_reviews and
+      current_role == 'MLRO') else "" %}
+      <option value="" {{ select_all }}>All</option>
+
+      {% set select_open = "selected" if not show_my_reviews and not show_all
+      and not show_escalated and current_role != 'MLRO' else "" %}
+      <option value="OPEN" {{ select_open }}>Open</option>
+
+      {% set select_ur = "selected" if show_my_reviews and current_role !=
+      'MLRO' else "" %}
+      <option value="UNDER_REVIEW" {{ select_ur }}>Under Review</option>
+
+      <option value="ESCALATED">Escalated</option>
+      <option value="CLOSED_SAR">Closed (SAR)</option>
+      <option value="CLOSED_NO_ACTION">Closed (No Action)</option>
+    </select>
+  </div>
+  <button
+    type="button"
+    class="btn btn-secondary btn-sm filter-reset"
+    onclick="resetAlertFilters()"
+  >
+    Reset
+  </button>
+
+  <div
+    class="counter-badge"
+    style="
+      margin-left: auto;
+      background: #24292e;
+      color: #fff;
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-weight: bold;
+      font-size: 13px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+      align-self: flex-end;
+    "
+  >
+    <span>Alerts:</span>
+    <span id="live-filter-count" style="color: #63e6be">0</span>
+    <span style="opacity: 0.5">/</span>
+    <span id="total-workspace-count" style="opacity: 0.8">0</span>
+  </div>
+</div>
+
+<div class="bulk-action-bar" id="bulk-action-bar" style="display: none">
+  <span><strong id="bulk-selected-count">0</strong> selected</span>
+  <button
+    type="submit"
+    form="bulk-action-form"
+    class="btn btn-primary btn-sm"
+    onclick="return setBulkAction('claim');"
+  >
+    Bulk Claim
+  </button>
+  <button
+    type="submit"
+    form="bulk-action-form"
+    class="btn btn-secondary btn-sm"
+    onclick="return setBulkAction('escalate');"
+  >
+    Bulk Escalate
+  </button>
+  <button
+    type="button"
+    class="btn btn-secondary btn-sm"
+    onclick="clearBulkSelection()"
+  >
+    Clear Selection
+  </button>
+</div>
+
+<div class="bulk-narrative-bar" id="bulk-narrative-bar" style="display: none">
+  <label for="bulk-narrative-text">
+    Escalation narrative
+    <span class="required">*</span>
+    <span class="field-hint">
+      Applied to every selected alert's audit trail. Minimum 15 characters.
+    </span>
+  </label>
+  <textarea
+    id="bulk-narrative-text"
+    rows="3"
+    placeholder="Explain why these alerts are being escalated..."
+    oninput="document.getElementById('bulk-narrative-input').value = this.value"
+  ></textarea>
+</div>
+
+<!--
+  bulk-action-form is intentionally NOT wrapped around the table. Each
+  row's own Claim/etc. form below needs to stay a real, independent
+  <form> — HTML doesn't allow nested forms, and several rows each need
+  their own POST target anyway. Instead, every checkbox below uses the
+  HTML5 form="bulk-action-form" attribute to associate itself with this
+  detached form by id, so checked values still get submitted together
+  when a bulk button is clicked, without any nesting.
+-->
+<form id="bulk-action-form" method="POST" action="{{ url_for('bulk_action') }}">
+  <input type="hidden" name="action" id="bulk-action-input" value="" />
+  <input type="hidden" name="narrative" id="bulk-narrative-input" value="" />
+</form>
+
+<table class="data-table" id="alerts-table">
+  <thead>
+    <tr>
+      <th style="width: 28px">
+        <input
+          type="checkbox"
+          id="select-all-checkbox"
+          onclick="toggleSelectAll(this)"
+          title="Select all actionable rows"
+        />
+      </th>
+      <th data-sort="alert_id">Alert ID</th>
+      <th data-sort="scenario_code">Scenario</th>
+      <th data-sort="severity">Severity</th>
+      <th data-sort="account_id">Account</th>
+      <th data-sort="trigger_value" data-sort-type="number">Trigger Value</th>
+      <th data-sort="created_at">Created / Age</th>
+      <th data-sort="status" class="status-header-col">Status</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for alert in alerts %}
+    <tr
+      data-scenario="{{ alert['scenario_code']|lower }}"
+      data-severity="{{ alert['severity']|upper }}"
+      data-account="{{ alert['account_id']|lower }}"
+      data-trigger="{{ alert['trigger_value'] }}"
+      data-created="{{ alert['created_at'] }}"
+      data-status="{{ alert['status']|upper }}"
+    >
+      <td>
+        {% if alert['status'] in ('OPEN', 'UNDER_REVIEW', 'ESCALATED') %}
+        <input
+          type="checkbox"
+          class="bulk-row-checkbox"
+          name="alert_ids"
+          value="{{ alert['alert_id'] }}"
+          form="bulk-action-form"
+          onclick="updateBulkBar()"
+        />
+        {% endif %}
+      </td>
+      <td class="mono">
+        <a href="{{ url_for('alert_detail', alert_id=alert['alert_id']) }}">
+          {{ alert['alert_id'][:8] }}&hellip;
+        </a>
+      </td>
+      <td>
+        <div class="scenario-code">{{ alert['scenario_code'] }}</div>
+        {% if alert['scenario_description'] %}
+        <div class="scenario-desc">{{ alert['scenario_description'] }}</div>
+        {% endif %}
+      </td>
+      <td>
+        <span class="badge severity-{{ alert['severity']|lower }}"
+          >{{ alert['severity'] }}</span
+        >
+      </td>
+      <td class="mono">{{ alert['account_id'] }}</td>
+      <td class="mono">{{ "%.2f"|format(alert['trigger_value']) }}</td>
+      <td class="mono">
+        {{ alert['created_at'][:19].replace('T', ' ') }} {% if alert['status']
+        in ('OPEN', 'UNDER_REVIEW', 'ESCALATED') %}
+        <span class="age-badge" data-created="{{ alert['created_at'] }}"></span>
+        {% endif %}
+      </td>
+      <td class="status-cell-data">
+        <span class="badge status-{{ alert['status']|lower }}"
+          >{{ alert['status'] }}</span
+        >
+      </td>
+      <td>
+        <div class="actions-flex-box">
+          <a
+            class="btn btn-secondary btn-sm"
+            href="{{ url_for('alert_detail', alert_id=alert['alert_id']) }}"
+            >View</a
+          >
+          {% if alert['status'] == 'OPEN' %}
+          <form
+            method="POST"
+            action="{{ url_for('claim_alert', alert_id=alert['alert_id']) }}"
+            class="inline-form"
+          >
+            <button type="submit" class="btn btn-primary btn-sm">Claim</button>
+          </form>
+          {% endif %}
+        </div>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+<div class="empty-state" id="no-filter-results" style="display: none">
+  No alerts match these filters.
+</div>
+
+<script>
+  function filterAlerts() {
+    const scenario = document
+      .getElementById("f-scenario")
+      .value.trim()
+      .toLowerCase();
+    const severity = document.getElementById("f-severity").value;
+    const account = document
+      .getElementById("f-account")
+      .value.trim()
+      .toLowerCase();
+    const triggerMin = parseFloat(
+      document.getElementById("f-trigger-min").value,
+    );
+    const status = document.getElementById("f-status").value;
+
+    const rows = document.querySelectorAll("#alerts-table tbody tr");
+    let visible = 0;
+
+    rows.forEach((row) => {
+      const matches =
+        (!scenario || row.dataset.scenario.includes(scenario)) &&
+        (!severity || row.dataset.severity === severity) &&
+        (!account || row.dataset.account.includes(account)) &&
+        (isNaN(triggerMin) || parseFloat(row.dataset.trigger) >= triggerMin) &&
+        (!status || row.dataset.status === status);
+
+      row.style.display = matches ? "" : "none";
+      if (matches) visible++;
+    });
+
+    document.getElementById("live-filter-count").textContent = visible;
+    document.getElementById("total-workspace-count").textContent = rows.length;
+
+    document.getElementById("no-filter-results").style.display =
+      visible === 0 ? "" : "none";
+    document.getElementById("alerts-table").style.display = "";
+  }
+
+  function resetAlertFilters() {
+    document.getElementById("f-scenario").value = "";
+    document.getElementById("f-severity").value = "";
+    document.getElementById("f-account").value = "";
+    document.getElementById("f-trigger-min").value = "";
+
+    // Restore whichever <option selected> the server rendered for this
+    // page/role combo, rather than re-deriving the role/page logic here
+    // in JS (which previously went stale the moment a new role or queue
+    // type was added — see MLRO escalated-queue default selection above).
+    const statusSelect = document.getElementById("f-status");
+    const defaultOption = statusSelect.querySelector("option[selected]");
+    statusSelect.value = defaultOption ? defaultOption.value : "";
+
+    filterAlerts();
+  }
+
+  document.addEventListener("DOMContentLoaded", () => {
+    filterAlerts();
+  });
+
+  document.querySelectorAll("#alerts-table th[data-sort]").forEach((th) => {
+    let asc = true;
+    th.style.cursor = "pointer";
+    th.addEventListener("click", () => {
+      const key = th.dataset.sort;
+      const numeric = th.dataset.sortType === "number";
+      const tbody = document.querySelector("#alerts-table tbody");
+      const rows = Array.from(tbody.querySelectorAll("tr"));
+      const attrMap = {
+        alert_id: null,
+        scenario_code: "scenario",
+        severity: "severity",
+        risk_score: "riskScore",
+        account_id: "account",
+        trigger_value: "trigger",
+        created_at: "created",
+        status: "status",
+      };
+      const attr = attrMap[key];
+      rows.sort((a, b) => {
+        let av, bv;
+        if (attr) {
+          av = a.dataset[attr];
+          bv = b.dataset[attr];
+        } else {
+          // cells[0] is now the checkbox column (inserted ahead of Alert
+          // ID for bulk selection); the Alert ID text itself is cells[1].
+          av = a.cells[1].textContent.trim();
+          bv = b.cells[1].textContent.trim();
+        }
+        if (numeric) {
+          av = parseFloat(av);
+          bv = parseFloat(bv);
+          return asc ? av - bv : bv - av;
+        }
+        return asc ? av.localeCompare(bv) : bv.localeCompare(av);
+      });
+      rows.forEach((r) => tbody.appendChild(r));
+      asc = !asc;
+    });
+  });
+
+  // --- Bulk action selection ---
+  function updateBulkBar() {
+    const checked = document.querySelectorAll(".bulk-row-checkbox:checked");
+    const bar = document.getElementById("bulk-action-bar");
+    document.getElementById("bulk-selected-count").textContent = checked.length;
+    bar.style.display = checked.length > 0 ? "flex" : "none";
+
+    // The narrative field only matters for Bulk Escalate, but it's shown
+    // alongside the action bar (rather than appearing/disappearing on
+    // every button click) so the requirement is visible before the
+    // person commits to an action, not as a surprise validation popup.
+    const narrativeBar = document.getElementById("bulk-narrative-bar");
+    narrativeBar.style.display = checked.length > 0 ? "block" : "none";
+
+    const selectAll = document.getElementById("select-all-checkbox");
+    const allBoxes = document.querySelectorAll(".bulk-row-checkbox");
+    selectAll.checked =
+      allBoxes.length > 0 && checked.length === allBoxes.length;
+    selectAll.indeterminate =
+      checked.length > 0 && checked.length < allBoxes.length;
+  }
+
+  function toggleSelectAll(source) {
+    // Only toggles currently-visible rows (respects active filters),
+    // so "select all" can't silently bulk-act on a hidden/filtered-out row.
+    document.querySelectorAll("#alerts-table tbody tr").forEach((row) => {
+      if (row.style.display === "none") return;
+      const box = row.querySelector(".bulk-row-checkbox");
+      if (box) box.checked = source.checked;
+    });
+    updateBulkBar();
+  }
+
+  function clearBulkSelection() {
+    document
+      .querySelectorAll(".bulk-row-checkbox")
+      .forEach((box) => (box.checked = false));
+    document.getElementById("select-all-checkbox").checked = false;
+    document.getElementById("select-all-checkbox").indeterminate = false;
+    document.getElementById("bulk-narrative-text").value = "";
+    document.getElementById("bulk-narrative-input").value = "";
+    updateBulkBar();
+  }
+
+  function setBulkAction(action) {
+    const checked = document.querySelectorAll(".bulk-row-checkbox:checked");
+    if (checked.length === 0) {
+      alert("Select at least one alert first.");
+      return false;
+    }
+
+    // Escalate is the only bulk action that now requires a shared
+    // narrative — Claim still doesn't need one, since claiming isn't a
+    // decision that needs justifying the way escalating one (or many)
+    // alerts to the MLRO does.
+    if (action === "escalate") {
+      const narrative = document
+        .getElementById("bulk-narrative-text")
+        .value.trim();
+      if (narrative.length < 15) {
+        alert(
+          "Enter an escalation narrative (at least 15 characters) before bulk escalating.",
+        );
+        return false;
+      }
+      document.getElementById("bulk-narrative-input").value = narrative;
+    }
+
+    document.getElementById("bulk-action-input").value = action;
+    return confirm(
+      `${action === "claim" ? "Claim" : "Escalate"} ${checked.length} selected alert(s)?`,
+    );
+  }
+
+  // --- Aging badges: same color thresholds as the Dashboard's oldest-open card ---
+  document.addEventListener("DOMContentLoaded", () => {
+    document.querySelectorAll(".age-badge[data-created]").forEach((el) => {
+      const created = new Date(el.dataset.created);
+      const hours = (new Date() - created) / (1000 * 60 * 60);
+      const days = Math.floor(hours / 24);
+      const remHours = Math.floor(hours % 24);
+      el.textContent = days > 0 ? `${days}d ${remHours}h` : `${remHours}h`;
+      el.title = `Created ${created.toLocaleString()}`;
+      if (hours >= 72) {
+        el.classList.add("age-red");
+      } else if (hours >= 24) {
+        el.classList.add("age-amber");
+      } else {
+        el.classList.add("age-green");
+      }
+    });
+  });
+</script>
+{% endif %} {% endblock %}

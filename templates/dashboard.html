@@ -1,0 +1,112 @@
+{% extends "base.html" %} {% block title %}Dashboard{% endblock %}
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}" />
+{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Dashboard</h1>
+  <p class="subtle">
+    System-wide snapshot &mdash; status counts across every alert, and what's
+    waited longest for attention.
+  </p>
+</div>
+
+<div class="dashboard-grid">
+  <a href="{{ url_for('alert_queue') }}" class="dashboard-tile tile-open">
+    <span class="tile-count">{{ summary.summary.open_count or 0 }}</span>
+    <span class="tile-label">Open</span>
+  </a>
+  <a
+    href="{{ url_for('alert_queue_my_reviews') }}"
+    class="dashboard-tile tile-under-review"
+  >
+    <span class="tile-count"
+      >{{ summary.summary.under_review_count or 0 }}</span
+    >
+    <span class="tile-label">Under Review</span>
+  </a>
+  <a
+    href="{{ url_for('alert_queue_escalated') if current_role == 'MLRO' else url_for('alert_queue') }}"
+    class="dashboard-tile tile-escalated"
+  >
+    <span class="tile-count">{{ summary.summary.escalated_count or 0 }}</span>
+    <span class="tile-label">Escalated</span>
+  </a>
+  <a
+    href="{{ url_for('alert_queue_all') }}"
+    class="dashboard-tile tile-closed-sar"
+  >
+    <span class="tile-count">{{ summary.summary.closed_sar_count or 0 }}</span>
+    <span class="tile-label">Closed (SAR)</span>
+  </a>
+  <a
+    href="{{ url_for('alert_queue_all') }}"
+    class="dashboard-tile tile-closed-no-action"
+  >
+    <span class="tile-count"
+      >{{ summary.summary.closed_no_action_count or 0 }}</span
+    >
+    <span class="tile-label">Closed (No Action)</span>
+  </a>
+  <a href="{{ url_for('alert_queue_all') }}" class="dashboard-tile tile-total">
+    <span class="tile-count">{{ summary.summary.total or 0 }}</span>
+    <span class="tile-label">Total Alerts</span>
+  </a>
+</div>
+
+<section class="panel" style="margin-top: 24px">
+  <h2>Oldest still open</h2>
+  {% if summary.oldest_open_alert %} {% set oa = summary.oldest_open_alert %}
+  <div class="oldest-open-card">
+    <div>
+      <span class="badge status-{{ oa.status|lower }}">{{ oa.status }}</span>
+      <span class="badge severity-{{ oa.severity|lower }}"
+        >{{ oa.severity }}</span
+      >
+      <span class="mono" style="margin-left: 8px">{{ oa.scenario_code }}</span>
+    </div>
+    <p class="subtle" style="margin: 8px 0">
+      Account <span class="mono">{{ oa.account_id }}</span> &mdash; created {{
+      oa.created_at[:19].replace('T', ' ') }}
+      <span class="age-badge" data-created="{{ oa.created_at }}"></span>
+    </p>
+    <a
+      class="btn btn-primary btn-sm"
+      href="{{ url_for('alert_detail', alert_id=oa.alert_id) }}"
+      >View Alert</a
+    >
+  </div>
+  {% else %}
+  <p class="subtle">Nothing waiting &mdash; every alert is closed.</p>
+  {% endif %}
+</section>
+
+
+
+<script>
+  // Computes and color-codes elapsed time client-side from the raw
+  // created_at timestamp, so the badge is always accurate to the moment
+  // the page is viewed rather than baked in at render time.
+  document.querySelectorAll(".age-badge[data-created]").forEach((el) => {
+    const created = new Date(el.dataset.created);
+    const now = new Date();
+    const ms = now - created;
+    const hours = ms / (1000 * 60 * 60);
+    const days = Math.floor(hours / 24);
+    const remHours = Math.floor(hours % 24);
+    el.textContent =
+      days > 0 ? `${days}d ${remHours}h ago` : `${remHours}h ago`;
+    el.title = created.toLocaleString();
+    if (hours >= 72) {
+      el.style.background = "rgba(248, 81, 73, 0.25)";
+      el.style.color = "#ff7b72";
+    } else if (hours >= 24) {
+      el.style.background = "rgba(210, 153, 34, 0.25)";
+      el.style.color = "#e3b341";
+    } else {
+      el.style.background = "rgba(63, 185, 80, 0.2)";
+      el.style.color = "#56d364";
+    }
+  });
+</script>
+{% endblock %}

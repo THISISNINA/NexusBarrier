@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{% block title %}AML Monitoring{% endblock %} · AML Dashboard</title>
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='style.css') }}"
+    />
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='base.css') }}"
+    />
+    {% block extra_css %}{% endblock %}
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <a href="{{ url_for('dashboard') }}" class="brand"
+          >AML Monitoring &middot; Analyst Dashboard</a
+        >
+
+        <nav
+          class="topnav"
+          style="display: inline-flex; align-items: center; gap: 16px"
+        >
+          <form
+            action="{{ url_for('switch_role') }}"
+            method="POST"
+            style="margin: 0; padding: 0; display: inline-flex"
+          >
+            <select
+              name="role"
+              onchange="this.form.submit()"
+              style="
+                background: #111;
+                color: #fff;
+                border: 1px solid #444;
+                padding: 4px;
+                border-radius: 4px;
+              "
+            >
+              <option
+                value="L1_ANALYST"
+                {% if session.get('role') == 'L1_ANALYST' %}selected{% endif %}
+              >
+                Analyst
+              </option>
+              <option
+                value="MLRO"
+                {% if session.get('role') == 'MLRO' %}selected{% endif %}
+              >
+                MLRO
+              </option>
+            </select>
+          </form>
+
+          <a href="{{ url_for('dashboard') }}">Dashboard</a>
+          <a href="{{ url_for('alert_queue_all') }}">All Alerts</a>
+          <a href="{{ url_for('alert_queue') }}">
+            {% if session.get('role') == 'MLRO' %}Open Queue (All){% else %}Open Queue{% endif %}
+          </a>
+          {% if session.get('role') == 'MLRO' %}
+          <a href="{{ url_for('alert_queue_escalated') }}">Escalated Queue</a>
+          {% endif %}
+          <a href="{{ url_for('alert_queue_my_reviews') }}">My Reviews</a>
+
+          <form
+            action="{{ url_for('run_pipeline') }}"
+            method="POST"
+            style="margin: 0; padding: 0; display: inline-flex"
+          >
+            <button
+              type="submit"
+              class="btn btn-primary btn-sm"
+              style="
+                background: #238636;
+                border: 1px solid #2ea44f;
+                color: white;
+                padding: 6px 12px;
+                border-radius: 6px;
+                font-weight: bold;
+                cursor: pointer;
+                font-size: 13px;
+              "
+            >
+              🔄 Generate & Process Data
+            </button>
+          </form>
+
+          <span
+            class="analyst-id"
+            style="opacity: 0.85; font-size: 13px; white-space: nowrap"
+          >
+            {% if session.get('role') == 'MLRO' %}
+              MLRO: MLRO_01
+            {% else %}
+              Analyst: ANALYST_01
+            {% endif %}
+          </span>
+        </nav>
+      </div>
+    </header>
+
+    <main class="page">
+      {% with messages = get_flashed_messages(with_categories=true) %} {% if
+      messages %}
+      <div class="flash-stack">
+        {% for category, message in messages %}
+        <div class="flash flash-{{ category }}">{{ message }}</div>
+        {% endfor %}
+      </div>
+      {% endif %} {% endwith %} {% block content %}{% endblock %}
+    </main>
+
+    <footer class="footer">
+      Local air-gapped AML monitoring system. No data leaves this machine.
+    </footer>
+  </body>
+</html>

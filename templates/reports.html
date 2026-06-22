@@ -1,0 +1,118 @@
+{% extends "base.html" %} {% block title %}SLA Reports{% endblock %} {% block
+content %}
+<div class="page-header">
+  <h1>SLA &amp; Reporting Dashboard</h1>
+  <p class="subtle">
+    Metrics derived from <span class="mono">str_decisions</span> and
+    <span class="mono">aml_alerts</span>.
+    <a href="{{ url_for('reports', format='json') }}">View as JSON</a>
+  </p>
+  <a
+    href="{{ url_for('export_sla_report_pdf') }}"
+    class="btn btn-secondary btn-sm"
+    style="margin-top: 8px; display: inline-block"
+  >
+    ⬇ Export as PDF
+  </a>
+</div>
+
+<section class="panel">
+  <h2>Alert Volume</h2>
+  <div class="stat-grid">
+    <div class="stat-card">
+      <div class="stat-value">{{ report.summary.total or 0 }}</div>
+      <div class="stat-label">Total Alerts</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">{{ report.summary.open_count or 0 }}</div>
+      <div class="stat-label">Open</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">{{ report.summary.under_review_count or 0 }}</div>
+      <div class="stat-label">Under Review</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">{{ report.summary.escalated_count or 0 }}</div>
+      <div class="stat-label">Escalated</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">{{ report.summary.closed_sar_count or 0 }}</div>
+      <div class="stat-label">Closed (SAR)</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">
+        {{ report.summary.closed_no_action_count or 0 }}
+      </div>
+      <div class="stat-label">Closed (No Action)</div>
+    </div>
+  </div>
+</section>
+
+<section class="panel">
+  <h2>SLA Timing</h2>
+  <div class="stat-grid">
+    <div class="stat-card">
+      <div class="stat-value">
+        {% if report.avg_time_to_review_days is not none %}{{
+        "%.2f"|format(report.avg_time_to_review_days) }}{% else %}&mdash;{%
+        endif %}
+      </div>
+      <div class="stat-label">Avg. Days to Review</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">
+        {% if report.avg_time_to_close_days is not none %}{{
+        "%.2f"|format(report.avg_time_to_close_days) }}{% else %}&mdash;{% endif
+        %}
+      </div>
+      <div class="stat-label">Avg. Days to Close</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">
+        {% if report.false_positive_rate_pct is not none %}{{
+        "%.1f"|format(report.false_positive_rate_pct) }}%{% else %}&mdash;{%
+        endif %}
+      </div>
+      <div class="stat-label">False Positive Rate</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">
+        {% if report.sar_rate_pct is not none %}{{
+        "%.1f"|format(report.sar_rate_pct) }}%{% else %}&mdash;{% endif %}
+      </div>
+      <div class="stat-label">SAR Rate</div>
+    </div>
+  </div>
+</section>
+
+<section class="panel">
+  <h2>Alerts by Scenario</h2>
+  {% if not report.alerts_by_scenario %}
+  <p class="subtle">No alerts in the system yet.</p>
+  {% else %}
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Scenario</th>
+        <th>Total</th>
+        <th>Open</th>
+        <th>Closed</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in report.alerts_by_scenario %}
+      <tr>
+        <td>
+          <div class="scenario-code">{{ row.scenario_code }}</div>
+          <div class="scenario-desc">{{ row.scenario_description }}</div>
+        </td>
+        <td class="mono">{{ row.total_alerts }}</td>
+        <td class="mono">{{ row.open_count }}</td>
+        <td class="mono">{{ row.closed_count }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+{% endblock %}

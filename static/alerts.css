@@ -1,0 +1,129 @@
+/* --- RESPONSIVE BREAKOUT AND FLUID CONTAINER OVERRIDES --- */
+.container,
+.main-content,
+main,
+body > div {
+  max-width: 100% !important;
+  width: 100% !important;
+  padding-left: 32px !important;
+  padding-right: 32px !important;
+  box-sizing: border-box;
+}
+
+.filter-bar {
+  max-width: 100% !important;
+  width: 100% !important;
+  box-sizing: border-box;
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* --- DATA GRID STRUCTURAL STABILIZATION --- */
+.data-table {
+  width: 100% !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  table-layout: auto !important;
+}
+
+.data-table th,
+.data-table td {
+  vertical-align: middle !important;
+}
+
+.data-table th.status-header-col {
+  text-align: center !important;
+  padding-left: 28px;
+}
+
+.data-table td.status-cell-data {
+  text-align: center !important;
+}
+
+.actions-flex-box {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+}
+
+.inline-form {
+  display: inline-flex;
+  align-items: center;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.bulk-action-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(88, 166, 255, 0.1);
+  border: 1px solid rgba(88, 166, 255, 0.3);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+}
+
+.bulk-narrative-bar {
+  background: rgba(88, 166, 255, 0.06);
+  border: 1px solid rgba(88, 166, 255, 0.2);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+}
+
+.bulk-narrative-bar label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  opacity: 0.85;
+  margin-bottom: 6px;
+}
+
+.bulk-narrative-bar .field-hint {
+  display: block;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+  opacity: 0.65;
+  margin-top: 2px;
+}
+
+.bulk-narrative-bar textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  color: inherit;
+  padding: 8px 10px;
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.age-badge {
+  display: inline-block;
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 9px;
+  margin-left: 6px;
+  white-space: nowrap;
+}
+.age-badge.age-green {
+  background: rgba(63, 185, 80, 0.2);
+  color: #56d364;
+}
+.age-badge.age-amber {
+  background: rgba(210, 153, 34, 0.25);
+  color: #e3b341;
+}
+.age-badge.age-red {
+  background: rgba(248, 81, 73, 0.25);
+  color: #ff7b72;
+}

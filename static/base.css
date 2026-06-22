@@ -1,0 +1,45 @@
+/* --- MASTER WIDESCREEN & RESPONSIVE FLUID LAYOUT OVERRIDES --- */
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  overflow-x: hidden;
+}
+
+/* Expands the main layout wrap across 100% of widescreen monitors */
+.topbar,
+.page,
+.footer {
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box;
+}
+
+/* Adjusts internal margins so content breathes naturally on widescreen displays */
+.page {
+  max-width: 100% !important;
+  width: 100% !important;
+  padding-left: 32px !important;
+  padding-right: 32px !important;
+  box-sizing: border-box;
+  margin-top: 24px;
+  margin-bottom: 40px;
+}
+
+.topbar-inner {
+  max-width: 100% !important;
+  width: 100% !important;
+  padding-left: 32px !important;
+  padding-right: 32px !important;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* Quick-fix utility to prevent flash items from pushing layout grids out of square */
+.flash-stack {
+  width: 100%;
+  margin-bottom: 20px;
+}

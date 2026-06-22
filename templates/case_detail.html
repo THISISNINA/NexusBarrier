@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+
+{% block title %}Case {{ case['case_id'][:8] }}{% endblock %}
+
+{% block content %}
+    <div class="page-header">
+        <a href="{{ url_for('alert_queue') }}" class="back-link">&larr; Back to queue</a>
+        <h1>Case <span class="mono">{{ case['case_id'] }}</span></h1>
+        <span class="badge status-{{ case['status']|lower }} badge-lg">{{ case['status'] }}</span>
+    </div>
+
+    <section class="panel">
+        <h2>Case Information</h2>
+        <dl class="kv-grid">
+            <dt>Case ID</dt><dd class="mono">{{ case['case_id'] }}</dd>
+            <dt>Account</dt><dd class="mono">{{ case['account_id'] }}</dd>
+            <dt>Status</dt><dd><span class="badge status-{{ case['status']|lower }}">{{ case['status'] }}</span></dd>
+            <dt>Created</dt><dd class="mono">{{ case['created_at'][:19].replace('T', ' ') }}</dd>
+            <dt>Last Updated</dt><dd class="mono">{{ case['updated_at'][:19].replace('T', ' ') }}</dd>
+        </dl>
+    </section>
+
+    <section class="panel">
+        <h2>Linked Alerts ({{ alerts|length }})</h2>
+        {% if not alerts %}
+        <p class="subtle">No alerts linked to this case.</p>
+        {% else %}
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Alert ID</th>
+                    <th>Scenario</th>
+                    <th>Severity</th>
+                    <th>Status</th>
+                    <th>Created</th>
+                    <th>Linked</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for a in alerts %}
+                <tr>
+                    <td class="mono">{{ a['alert_id'][:8] }}&hellip;</td>
+                    <td>{{ a['scenario_code'] }}</td>
+                    <td><span class="badge severity-{{ a['severity']|lower }}">{{ a['severity'] }}</span></td>
+                    <td><span class="badge status-{{ a['status']|lower }}">{{ a['status'] }}</span></td>
+                    <td class="mono">{{ a['created_at'][:19].replace('T', ' ') }}</td>
+                    <td class="mono">{{ a['linked_at'][:19].replace('T', ' ') }}</td>
+                    <td><a class="btn btn-secondary btn-sm" href="{{ url_for('alert_detail', alert_id=a['alert_id']) }}">View</a></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+    </section>
+{% endblock %}

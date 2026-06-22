@@ -1,0 +1,46 @@
+.workflow-strip {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+.workflow-step {
+  flex: 1 1 180px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.workflow-step p {
+  margin: 0;
+  font-size: 13px;
+  opacity: 0.85;
+}
+.workflow-arrow {
+  display: flex;
+  align-items: center;
+  font-size: 20px;
+  opacity: 0.5;
+}
+.role-list {
+  margin: 10px 0;
+  padding-left: 20px;
+  line-height: 1.7;
+}
+.scenario-reference summary {
+  cursor: pointer;
+  list-style: none;
+}
+.scenario-reference summary::-webkit-details-marker {
+  display: none;
+}
+.scenario-reference summary::before {
+  content: "▸ ";
+}
+.scenario-reference[open] summary::before {
+  content: "▾ ";
+}

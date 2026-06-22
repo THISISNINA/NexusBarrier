@@ -1,0 +1,507 @@
+{% extends "base.html" %} {% block title %}Alert {{ alert['alert_id'][:8] }}{%
+endblock %} {% block extra_css %}
+<link
+  rel="stylesheet"
+  href="{{ url_for('static', filename='alert_detail.css') }}"
+/>
+{% endblock %} {% block content %}
+<div class="page-header">
+  <a href="{{ url_for('alert_queue') }}" class="back-link"
+    >&larr; Back to queue</a
+  >
+  <h1>Alert <span class="mono">{{ alert['alert_id'] }}</span></h1>
+  <span class="badge status-{{ status|lower }} badge-lg">{{ status }}</span>
+</div>
+
+<section class="panel">
+  <h2>Alert Information</h2>
+  <dl class="kv-grid">
+    <dt>Alert ID</dt>
+    <dd class="mono">{{ alert['alert_id'] }}</dd>
+    <dt>Scenario</dt>
+    <dd>
+      {{ alert['scenario_code'] }}{% if alert['scenario_description'] %} &mdash;
+      {{ alert['scenario_description'] }}{% endif %}
+    </dd>
+    {% if alert['scenario_typology'] %}
+    <dt>Typology</dt>
+    <dd>{{ alert['scenario_typology'] }}</dd>
+    {% endif %}
+    <dt>Severity</dt>
+    <dd>
+      <span class="badge severity-{{ alert['severity']|lower }}"
+        >{{ alert['severity'] }}</span
+      >
+    </dd>
+    {% if rule_version %}
+    <dt>Rule Version</dt>
+    <dd>
+      <span class="mono"
+        >{{ alert['scenario_code'] }} v{{ rule_version['version_number']
+        }}</span
+      >
+      &mdash; threshold {{ "%.2f"|format(rule_version['threshold_value']) if
+      rule_version['threshold_value'] is not none else '—' }}{% if
+      rule_version['window_days'] %}, {{ rule_version['window_days'] }}-day
+      window{% endif %}
+      <span class="field-hint" style="margin-top: 6px; display: block"
+        >The exact threshold in effect when this alert fired. If this scenario's
+        threshold has since changed, this alert's record is unaffected — it
+        remains tied to the version active at the time.</span
+      >
+    </dd>
+    {% endif %}
+    <dt>Trigger Value</dt>
+    <dd class="mono">{{ "%.2f"|format(alert['trigger_value']) }}</dd>
+    <dt>Detection Period</dt>
+    <dd class="mono">
+      {{ alert['detection_period_start'][:10] }} &rarr; {{
+      alert['detection_period_end'][:10] }}
+    </dd>
+    <dt>Status</dt>
+    <dd><span class="badge status-{{ status|lower }}">{{ status }}</span></dd>
+    <dt>Created</dt>
+    <dd class="mono">
+      {{ alert['created_at'][:19].replace('T', ' ') }} {% if status in ('OPEN',
+      'UNDER_REVIEW', 'ESCALATED') %}
+      <span class="age-badge" data-created="{{ alert['created_at'] }}"></span>
+      {% endif %}
+    </dd>
+  </dl>
+  {% if alert['narrative'] %}
+  <div class="auto-narrative">
+    <strong>System-generated brief:</strong>
+    <p>{{ alert['narrative'] }}</p>
+  </div>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <h2>Customer Profile</h2>
+  {% if customer %}
+  <dl class="kv-grid">
+    <dt>Account ID</dt>
+    <dd class="mono">{{ customer['account_id'] }}</dd>
+    <dt>Customer Name</dt>
+    <dd>{{ customer['customer_name'] }}</dd>
+    <dt>Customer Type</dt>
+    <dd>{{ customer['customer_type'] }}</dd>
+    <dt>Risk Rating</dt>
+    <dd>
+      <span class="badge risk-{{ customer['risk_rating']|lower }}"
+        >{{ customer['risk_rating'] }}</span
+      >
+    </dd>
+    <dt>PEP Status</dt>
+    <dd>
+      {% if customer['is_pep'] %}<span class="badge risk-high">PEP</span>{% else
+      %}No{% endif %}
+    </dd>
+    <dt>Expected Monthly Volume</dt>
+    <dd class="mono">
+      {{ "%.2f"|format(customer['expected_monthly_volume']) }}
+    </dd>
+  </dl>
+  {% else %}
+  <p class="subtle">
+    No customer profile on file for account
+    <span class="mono">{{ alert['account_id'] }}</span>.
+  </p>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <h2>Linked Transactions</h2>
+  {% if not transactions %}
+  <p class="subtle">No transactions linked to this alert.</p>
+  {% else %}
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Transaction ID</th>
+        <th>Amount</th>
+        <th>Date</th>
+        <th>Country</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for tx in transactions %}
+      <tr>
+        <td class="mono">{{ tx['transaction_id'] }}</td>
+        <td class="mono">{{ "%.2f"|format(tx['amount']) }}</td>
+        <td class="mono">
+          {{ tx['transaction_date'][:19].replace('T', ' ') }}
+        </td>
+        <td>{{ tx['country'] }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <h2>Workflow Actions</h2>
+
+  {% if status == 'OPEN' %}
+  <form
+    method="POST"
+    action="{{ url_for('claim_alert', alert_id=alert['alert_id']) }}"
+  >
+    <button type="submit" class="btn btn-primary">Claim Alert</button>
+  </form>
+
+  {% elif status in ('UNDER_REVIEW', 'ESCALATED') %} {% if status == 'ESCALATED'
+  and current_role != 'MLRO' %}
+  <p class="subtle">
+    This alert has been escalated to the MLRO for sign-off. Only an MLRO can
+    close it or return it to the analyst queue &mdash; no action is available
+    here while it remains escalated.
+  </p>
+  {% else %}
+  <div class="investigation-panel">
+    <h3>Investigation Panel</h3>
+
+    <form method="POST" id="workflow-form">
+      <div class="form-group">
+        <label for="narrative">Narrative <span class="required">*</span></label>
+        <textarea
+          id="narrative"
+          name="narrative"
+          rows="5"
+          required
+          minlength="15"
+          placeholder="Document your findings..."
+        ></textarea>
+      </div>
+
+      <div class="form-group">
+        <label for="closure_reason_code">Closure Reason</label>
+        <select
+          id="closure_reason_code"
+          name="closure_reason_code"
+          onchange="toggleSarReferenceField()"
+        >
+          <option value="" selected disabled>Select a reason&hellip;</option>
+          <optgroup label="No SAR Filed">
+            {% for code in no_sar_closure_codes %}
+            <option value="{{ code }}">
+              {{ code|replace('_', ' ')|title }}
+            </option>
+            {% endfor %}
+          </optgroup>
+          {% if status == 'ESCALATED' %}
+          <optgroup label="SAR Filed">
+            {% for code in sar_closure_codes %}
+            <option value="{{ code }}">
+              {{ code|replace('_', ' ')|title }}
+            </option>
+            {% endfor %}
+          </optgroup>
+          {% endif %}
+        </select>
+        <span class="field-hint" style="margin-top: 6px; display: block">
+          Required to Close Alert (not used when escalating). {% if status !=
+          'ESCALATED' %} SAR-confirming reasons (Structuring Confirmed, High
+          Risk Confirmed) become available once this alert has been escalated to
+          an MLRO &mdash; if you believe this is heading toward a SAR filing,
+          escalate it instead of closing it here. {% endif %}
+        </span>
+      </div>
+
+      <div class="form-group" id="sar-reference-group" style="display: none">
+        <label for="sar_reference"
+          >goAML Reference <span class="required">*</span></label
+        >
+        <input
+          type="text"
+          id="sar_reference"
+          name="sar_reference"
+          placeholder="Local goAML tracking reference number"
+        />
+        <span class="field-hint" style="margin-top: 6px; display: block">
+          Required whenever the closure reason files a SAR.
+        </span>
+      </div>
+
+      <div class="form-actions">
+        <button
+          type="submit"
+          formaction="{{ url_for('close_alert', alert_id=alert['alert_id']) }}"
+          class="btn btn-danger"
+          onclick="return validateCloseAlert();"
+        >
+          Close Alert
+        </button>
+
+        {% if 'ESCALATED' in valid_next_states %}
+        <button
+          type="submit"
+          formaction="{{ url_for('escalate_alert', alert_id=alert['alert_id']) }}"
+          class="btn btn-secondary"
+        >
+          Escalate
+        </button>
+        {% endif %}
+      </div>
+    </form>
+  </div>
+
+  <script type="application/json" id="sar-closure-codes-data">
+    {{ sar_closure_codes | tojson | safe }}
+  </script>
+  <script>
+    // Codes that imply a SAR is being filed — kept in sync with
+    // AMLService.SAR_CLOSURE_CODES server-side; this list only drives
+    // which <option> values reveal the goAML reference field, it isn't
+    // itself a validation boundary (close_alert/transition_alert still
+    // enforce the real requirement server-side). The SAR optgroup is
+    // also only rendered at all when status == 'ESCALATED' (see Jinja
+    // above), so at UNDER_REVIEW these codes simply aren't selectable
+    // in the first place — this script only matters once that's true.
+    const SAR_CLOSURE_CODES = JSON.parse(
+      document.getElementById("sar-closure-codes-data").textContent,
+    );
+
+    function toggleSarReferenceField() {
+      const select = document.getElementById("closure_reason_code");
+      const group = document.getElementById("sar-reference-group");
+      const isSar = SAR_CLOSURE_CODES.includes(select.value);
+      group.style.display = isSar ? "block" : "none";
+      document.getElementById("sar_reference").required = isSar;
+    }
+
+    function validateCloseAlert() {
+      const select = document.getElementById("closure_reason_code");
+      if (!select.value) {
+        alert("Select a closure reason before closing this alert.");
+        return false;
+      }
+      if (SAR_CLOSURE_CODES.includes(select.value)) {
+        const ref = document.getElementById("sar_reference").value.trim();
+        if (!ref) {
+          alert(
+            "Enter a goAML reference number — this closure reason files a SAR.",
+          );
+          return false;
+        }
+      }
+      return true;
+    }
+  </script>
+  {% endif %} {% endif %}
+</section>
+
+<section class="panel">
+  <h2>Case Grouping</h2>
+  {% if current_case %}
+  <p class="subtle">
+    This alert is linked to case
+    <a
+      href="{{ url_for('case_detail', case_id=current_case['case_id']) }}"
+      class="mono"
+      >{{ current_case['case_id'][:8] }}&hellip;</a
+    >
+    (status:
+    <span class="badge status-{{ current_case['status']|lower }}"
+      >{{ current_case['status'] }}</span
+    >).
+  </p>
+  {% else %}
+  <p class="subtle">This alert is not yet part of a case.</p>
+  <div class="actions-flex-box" style="flex-wrap: wrap; gap: 10px">
+    <form
+      method="POST"
+      action="{{ url_for('create_case', alert_id=alert['alert_id']) }}"
+      class="inline-form"
+    >
+      <button type="submit" class="btn btn-secondary btn-sm">
+        Create Case from this Alert
+      </button>
+    </form>
+
+    {% if open_cases_for_account %}
+    <form
+      method="POST"
+      id="link-case-form"
+      action="{{ url_for('link_alert_to_case', case_id='__PLACEHOLDER__', alert_id=alert['alert_id']) }}"
+      class="inline-form"
+      style="gap: 6px"
+      onsubmit="return submitLinkToCase(this);"
+    >
+      <select
+        id="link-case-select"
+        style="padding: 5px 8px; border-radius: 4px"
+      >
+        {% for c in open_cases_for_account %}
+        <option value="{{ c['case_id'] }}">
+          Case {{ c['case_id'][:8] }}&hellip; (opened {{ c['created_at'][:10]
+          }})
+        </option>
+        {% endfor %}
+      </select>
+      <button type="submit" class="btn btn-secondary btn-sm">
+        Link to Existing Case
+      </button>
+    </form>
+    {% endif %}
+  </div>
+
+  {% if not open_cases_for_account and related_alerts %}
+  <p class="field-hint" style="margin-top: 8px">
+    No existing open case for this account yet &mdash; create one above, or
+    check the related alerts below for ones that may already be grouped.
+  </p>
+  {% endif %}
+
+  <script>
+    function submitLinkToCase(form) {
+      const caseId = document.getElementById("link-case-select").value;
+      if (!caseId) return false;
+      form.action = form.action.replace("__PLACEHOLDER__", caseId);
+      return true;
+    }
+  </script>
+
+  {% if related_alerts %}
+  <div class="related-alerts">
+    <p class="field-hint" style="margin-top: 14px">
+      Other alerts on account
+      <span class="mono">{{ alert['account_id'] }}</span> raised around the same
+      time &mdash; consider grouping if they look related:
+    </p>
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Alert ID</th>
+          <th>Scenario</th>
+          <th>Severity</th>
+          <th>Status</th>
+          <th>Created</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for ra in related_alerts %}
+        <tr>
+          <td class="mono">
+            <a href="{{ url_for('alert_detail', alert_id=ra['alert_id']) }}"
+              >{{ ra['alert_id'][:8] }}&hellip;</a
+            >
+          </td>
+          <td>{{ ra['scenario_code'] }}</td>
+          <td>
+            <span class="badge severity-{{ ra['severity']|lower }}"
+              >{{ ra['severity'] }}</span
+            >
+          </td>
+          <td>
+            <span class="badge status-{{ ra['status']|lower }}"
+              >{{ ra['status'] }}</span
+            >
+          </td>
+          <td class="mono">{{ ra['created_at'][:19].replace('T', ' ') }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %} {% endif %}
+</section>
+
+{% if time_in_review and time_in_review.view_count %}
+<section class="panel">
+  <h2>Investigation Activity</h2>
+  <dl class="kv-grid">
+    <dt>Times Viewed</dt>
+    <dd class="mono">{{ time_in_review.view_count }}</dd>
+    <dt>First Viewed</dt>
+    <dd class="mono">
+      {{ time_in_review.first_viewed_at[:19].replace('T', ' ') }}
+    </dd>
+    <dt>Last Viewed</dt>
+    <dd class="mono">
+      {{ time_in_review.last_viewed_at[:19].replace('T', ' ') }}
+    </dd>
+    <dt>Analysts Involved</dt>
+    <dd>{{ time_in_review.distinct_analysts | join(', ') }}</dd>
+    {% if time_in_review.time_in_review_days is not none %}
+    <dt>Time in Review</dt>
+    <dd class="mono">
+      {{ "%.2f"|format(time_in_review.time_in_review_days) }} days {% if not
+      time_in_review.currently_closed %}<span class="subtle">(still open)</span
+      >{% endif %}
+    </dd>
+    {% endif %}
+  </dl>
+  <p class="field-hint" style="margin-top: 10px">
+    Measured from first view to closure (or to now, if still open) — a proxy for
+    analyst attention, distinct from the calendar-time SLA metrics on the
+    Reports page.
+  </p>
+</section>
+{% endif %} {% if decisions %}
+<section class="panel">
+  <h2>Audit Trail</h2>
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Timestamp</th>
+        <th>Analyst</th>
+        <th>Role</th>
+        <th>Status</th>
+        <th>Closure/Escalation Reason</th>
+        <th>Notes / Narrative</th>
+        <th>SAR Reference</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for d in decisions %}
+      <tr>
+        <td class="mono">{{ d['updated_at'][:19].replace('T', ' ') }}</td>
+        <td>{{ d['analyst_id'] }}</td>
+        <td class="mono">{{ d['analyst_role'] or '—' }}</td>
+        <td>
+          <span class="badge status-{{ d['workflow_status']|lower }}">
+            {{ d['workflow_status'] }}
+          </span>
+        </td>
+
+        <td>{{ d['closure_reason_code'] or '—' }}</td>
+
+        <td>
+          <div
+            class="narrative-text"
+            style="max-width: 300px; word-wrap: break-word"
+          >
+            {{ d['risk_justification_narrative'] or 'No comments provided.' }}
+          </div>
+        </td>
+
+        <td>{{ d['goaml_reference_number'] or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+<script>
+  document.addEventListener("DOMContentLoaded", () => {
+    document.querySelectorAll(".age-badge[data-created]").forEach((el) => {
+      const created = new Date(el.dataset.created);
+      const hours = (new Date() - created) / (1000 * 60 * 60);
+      const days = Math.floor(hours / 24);
+      const remHours = Math.floor(hours % 24);
+      el.textContent = days > 0 ? `${days}d ${remHours}h` : `${remHours}h`;
+      el.title = `Created ${created.toLocaleString()}`;
+      if (hours >= 72) {
+        el.classList.add("age-red");
+      } else if (hours >= 24) {
+        el.classList.add("age-amber");
+      } else {
+        el.classList.add("age-green");
+      }
+    });
+  });
+</script>
+{% endblock %}
