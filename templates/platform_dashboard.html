@@ -1,0 +1,129 @@
+{% extends "platform_base.html" %} {% block title %}Tenant Workspaces{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <h1>Tenant Workspaces</h1>
+</div>
+
+<section class="panel">
+  <h2>System Health</h2>
+  <div class="stat-grid">
+    <div class="stat-card">
+      <div class="stat-label">Tenant Workspaces</div>
+      <div class="stat-value mono">{{ health.tenant_count }}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Active Licenses</div>
+      <div class="stat-value mono">{{ health.active_tenant_count }}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Monitoring DB Size</div>
+      <div class="stat-value mono">{{ health.monitoring_db_mb if health.monitoring_db_mb is not none else "—" }} MB</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Screening DB Size</div>
+      <div class="stat-value mono">{{ health.screening_db_mb if health.screening_db_mb is not none else "—" }} MB</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Platform DB Size</div>
+      <div class="stat-value mono">{{ health.platform_db_mb if health.platform_db_mb is not none else "—" }} MB</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">SQLite Engine</div>
+      <div class="stat-value mono">{{ health.sqlite_version }}</div>
+    </div>
+  </div>
+  <p class="field-hint">
+    Infrastructure metrics only. This console cannot read alerts, decisions,
+    transactions, or any other compliance data inside a tenant workspace.
+  </p>
+</section>
+
+<section class="panel">
+  <h2>Provision New Workspace</h2>
+  <form method="POST" action="{{ url_for('platform_provision') }}" autocomplete="off">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+    <div class="form-group">
+      <label for="company_name">Company Name <span class="required">*</span></label>
+      <input type="text" id="company_name" name="company_name" placeholder="e.g. Acme Bank" required />
+      <span class="field-hint">
+        The workspace's Company ID is generated from this name plus a random
+        suffix, and shown once provisioning succeeds.
+      </span>
+    </div>
+    <div class="form-group">
+      <label for="contact_email">Primary Contact Email <span class="required">*</span></label>
+      <input type="email" id="contact_email" name="contact_email" placeholder="compliance-lead@acme-bank.example" required />
+    </div>
+    <div class="form-group">
+      <label for="admin_username">Initial Tenant Admin — Username <span class="required">*</span></label>
+      <input type="text" id="admin_username" name="admin_username" autocapitalize="off" autocomplete="off" required />
+    </div>
+    <div class="form-group">
+      <label for="admin_password">Initial Tenant Admin — Temporary Password <span class="required">*</span></label>
+      <input type="password" id="admin_password" name="admin_password" autocomplete="new-password" minlength="12" required />
+      <span class="field-hint">
+        At least 12 characters, mixing upper/lowercase, a number, and a symbol.
+        The admin account is created pre-approved — it is the account that
+        reviews everyone else's access requests for this workspace.
+      </span>
+    </div>
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary">Provision Workspace</button>
+    </div>
+  </form>
+</section>
+
+<section class="panel">
+  <h2>Tenant Licensing</h2>
+  {% if tenants %}
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Company ID</th>
+        <th>Display Name</th>
+        <th>Primary Contact</th>
+        <th>Users</th>
+        <th>Status</th>
+        <th>Provisioned</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for t in tenants %}
+      <tr>
+        <td class="mono">{{ t.company_id }}</td>
+        <td>{{ t.display_name }}</td>
+        <td>{{ t.contact_email or "—" }}</td>
+        <td class="mono">
+          <a href="{{ url_for('platform_company_users', company_id=t.company_id) }}">{{ t.user_count }}</a>
+        </td>
+        <td>
+          <span class="badge {% if t.status != 'ACTIVE' %}badge-danger{% endif %}">{{ t.status }}</span>
+        </td>
+        <td class="mono">{{ t.created_at[:10] if t.created_at else "—" }}</td>
+        <td class="actions-cell">
+          <form class="inline-form" method="POST" action="{{ url_for('platform_company_status', company_id=t.company_id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+            {% if t.status == 'ACTIVE' %}
+            <input type="hidden" name="status" value="SUSPENDED" />
+            <button type="submit" class="btn btn-danger btn-sm"
+                    onclick="return confirm('Suspend {{ t.company_id }}? Every user in this workspace is locked out on their next request.')">
+              Suspend
+            </button>
+            {% else %}
+            <input type="hidden" name="status" value="ACTIVE" />
+            <button type="submit" class="btn btn-secondary btn-sm">Reactivate</button>
+            {% endif %}
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state">No tenant workspaces provisioned yet.</div>
+  {% endif %}
+</section>
+
+{% endblock %}

@@ -1,0 +1,68 @@
+{% extends "platform_base.html" %} {% block title %}{{ company.display_name }} · Users{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <h1>{{ company.display_name }} — Users</h1>
+  <p class="field-hint mono">{{ company.company_id }}</p>
+</div>
+
+<p class="auth-footnote subtle">
+  <a href="{{ url_for('platform_dashboard') }}">&larr; Back to workspaces</a>
+</p>
+
+<section class="panel">
+  <h2>Roster</h2>
+  {% if users %}
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Username</th>
+        <th>Name</th>
+        <th>Role</th>
+        <th>Requested</th>
+        <th>Status</th>
+        <th>Approved By</th>
+        <th>Joined</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for u in users %}
+      <tr>
+        <td class="mono">{{ u.username }}</td>
+        <td>
+          {{ u.full_name or "—" }}
+          {% if u.nickname and u.nickname != u.full_name %}
+          <span class="field-hint hint-inline">&ldquo;{{ u.nickname }}&rdquo;</span>
+          {% endif %}
+        </td>
+        <td><span class="role-badge">{{ u.role }}</span></td>
+        <td>
+          {% if u.requested_role and u.requested_role != u.role %}
+          <span class="field-hint">{{ u.requested_role }}</span>
+          {% else %}—{% endif %}
+        </td>
+        <td>
+          {% if not u.is_approved and u.status != 'REJECTED' %}
+          <span class="badge">PENDING</span>
+          {% else %}
+          <span class="badge {% if u.status != 'ACTIVE' %}badge-danger{% endif %}">{{ u.status }}</span>
+          {% endif %}
+        </td>
+        <td class="mono">{{ u.approved_by or "—" }}</td>
+        <td class="mono">{{ u.created_at[:10] if u.created_at else "—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state">No users in this workspace yet.</div>
+  {% endif %}
+  <p class="field-hint">
+    Read-only. This console shows workspace membership for oversight, but has
+    no write actions here and cannot read the workspace's alerts, transactions,
+    or compliance decisions. User approvals and role changes are performed by
+    the workspace's own Tenant Admin.
+  </p>
+</section>
+
+{% endblock %}

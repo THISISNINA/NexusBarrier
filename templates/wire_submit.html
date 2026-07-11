@@ -1,0 +1,100 @@
+{% extends "base.html" %}{% block title %}Wire Screening{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Wire Transfer — Pre-Release Screening</h1>
+  <p class="subtle">
+    Simulates a payments-ops user submitting a correspondent-banking wire for
+    release. The ordering customer and beneficiary names are screened against
+    sanctions, PEP, and internal watchlist data <strong>before the transaction
+    posts</strong>. A match blocks the wire immediately and raises an alert in
+    the Open Queue — it does not wait for the next batch engine run.
+  </p>
+  <p class="subtle">
+    This only applies to <strong>CORRESPONDENT</strong> accounts (Category 3)
+    — the category where payment messages carry distinct ordering/beneficiary
+    names that must be screened independently of the account holder.
+    <a href="{{ url_for('wire_log') }}" style="margin-left: 10px;">View screening log &rarr;</a>
+  </p>
+</div>
+
+<div class="panel" style="max-width: 680px">
+  <h2>Submit Wire</h2>
+  <form method="POST" action="{{ url_for('wire_submit') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+    <div class="form-group">
+      <label for="account_id">Sending Correspondent Account <span class="required">*</span></label>
+      <select id="account_id" name="account_id" style="width:100%">
+        <option value="" disabled selected>Select account&hellip;</option>
+        {% for a in accounts %}
+        <option value="{{ a.account_id }}">
+          {{ a.customer_name }}
+          {% if a.swift_bic %}({{ a.swift_bic }}){% endif %}
+          — {{ a.account_id }}
+          {% if a.risk_rating == 'HIGH' %} [HIGH RISK]{% endif %}
+          {% if a.open_alert_count > 0 %} [{{ a.open_alert_count }} open alert(s)]{% endif %}
+        </option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="form-group">
+        <label for="amount">Amount (AED) <span class="required">*</span></label>
+        <input type="number" id="amount" name="amount" min="0.01" step="0.01"
+               placeholder="50000.00" style="width:100%" />
+      </div>
+      <div class="form-group">
+        <label for="country">Destination Country Code <span class="required">*</span></label>
+        <input type="text" id="country" name="country" maxlength="2"
+               placeholder="AE, US, IR…" style="width:100%;text-transform:uppercase" />
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label for="ordering_customer_name">Ordering Customer Name <span class="required">*</span></label>
+      <input type="text" id="ordering_customer_name" name="ordering_customer_name"
+             placeholder="Name of the party sending the wire" style="width:100%" />
+      <span class="field-hint">Screened against sanctions, PEP, and internal watchlist.</span>
+    </div>
+
+    <div class="form-group">
+      <label for="beneficiary_name">Beneficiary Name <span class="required">*</span></label>
+      <input type="text" id="beneficiary_name" name="beneficiary_name"
+             placeholder="Name of the party receiving the wire" style="width:100%" />
+      <span class="field-hint">Screened independently of the ordering customer.</span>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="form-group">
+        <label for="originating_bank_bic">Originating Bank BIC</label>
+        <input type="text" id="originating_bank_bic" name="originating_bank_bic"
+               placeholder="VALDAABB" maxlength="11" style="width:100%" />
+      </div>
+      <div class="form-group">
+        <label for="reference">Payment Reference</label>
+        <input type="text" id="reference" name="reference"
+               placeholder="INV-2025-0042" style="width:100%" />
+      </div>
+    </div>
+
+    <div class="form-actions" style="margin-top:6px">
+      <button type="submit" class="btn btn-primary">Screen &amp; Submit Wire</button>
+      <a href="{{ url_for('wire_log') }}" class="btn btn-secondary">View Log</a>
+    </div>
+  </form>
+</div>
+
+<section class="panel" style="max-width: 680px; margin-top:0">
+  <h2>How this works</h2>
+  <dl class="kv-grid">
+    <dt>Clean wire</dt>
+    <dd>All names clear screening &rarr; transaction posts immediately with status <span class="badge severity-low">CLEARED</span>.</dd>
+    <dt>Matched wire</dt>
+    <dd>Any name hits a sanctions, PEP, or watchlist entry &rarr; transaction posts with status <span class="badge badge-danger">BLOCKED</span> and an alert fires in the Open Queue right now — no waiting for the next engine batch run.</dd>
+    <dt>Fuzzy match</dt>
+    <dd>Near-identical names (transliteration variants, phonetic matches) are caught in addition to exact matches. A confidence level is shown on the result and on the alert.</dd>
+    <dt>Batch-loaded transactions</dt>
+    <dd>Historical transactions loaded by the pipeline are marked <span class="badge severity-low">CLEARED</span> by default — they never went through live pre-release screening, since they represent already-occurred history.</dd>
+  </dl>
+</section>
+{% endblock %}

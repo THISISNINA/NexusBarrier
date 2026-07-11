@@ -1,0 +1,137 @@
+{% extends "base.html" %} {% block title %}Team & Access{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <h1>Team &amp; Access Requests</h1>
+</div>
+
+<section class="panel">
+  <h2>Access Requests</h2>
+  {% if pending %}
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Username</th>
+        <th>Full Name</th>
+        <th>Requested Role</th>
+        <th>Requested</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in pending %}
+      <tr>
+        <td class="mono">{{ p.username }}</td>
+        <td>
+          {{ p.full_name or "—" }}
+          {% if p.nickname and p.nickname != p.full_name %}
+          <span class="field-hint hint-inline">&ldquo;{{ p.nickname }}&rdquo;</span>
+          {% endif %}
+        </td>
+        <td>
+          <span class="role-badge">{{ p.requested_role or "L1_ANALYST" }}</span>
+          {% if p.requested_role == 'MLRO' %}
+          <span class="field-hint hint-block">
+            Approving activates them as Analyst. Grant MLRO via Change Role below.
+          </span>
+          {% endif %}
+        </td>
+        <td class="mono">{{ p.created_at[:19].replace("T", " ") if p.created_at else "—" }}</td>
+        <td class="actions-cell">
+          <div class="actions-flex-box">
+            <form class="inline-form" method="POST" action="{{ url_for('admin_approve_user', user_id=p.user_id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+              <button type="submit" class="btn btn-primary btn-sm">Approve</button>
+            </form>
+            <form class="inline-form" method="POST" action="{{ url_for('admin_reject_user', user_id=p.user_id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+              <button type="submit" class="btn btn-danger btn-sm"
+                      onclick="return confirm('Decline {{ p.username }}\'s access request? The record is kept (blocked) for audit.')">
+                Reject
+              </button>
+            </form>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state">No pending access requests.</div>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <h2>Team Members</h2>
+  {% if members %}
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Username</th>
+        <th>Name</th>
+        <th>Role</th>
+        <th>Status</th>
+        <th>Approved By</th>
+        <th>Joined</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for m in members %}
+      <tr>
+        <td class="mono">{{ m.username }}</td>
+        <td>
+          {{ m.full_name or "—" }}
+          {% if m.nickname and m.nickname != m.full_name %}
+          <span class="field-hint hint-inline">&ldquo;{{ m.nickname }}&rdquo;</span>
+          {% endif %}
+        </td>
+        <td><span class="role-badge">{{ m.role }}</span></td>
+        <td>
+          {% if not m.is_approved and m.status != 'REJECTED' %}
+          <span class="badge">PENDING</span>
+          {% else %}
+          <span class="badge {% if m.status != 'ACTIVE' %}badge-danger{% endif %}">{{ m.status }}</span>
+          {% endif %}
+        </td>
+        <td class="mono">{{ m.approved_by or "—" }}</td>
+        <td class="mono">{{ m.created_at[:10] if m.created_at else "—" }}</td>
+        <td class="actions-cell">
+          {% if m.user_id == g.user.sub %}
+          <span class="field-hint">This is you</span>
+          {% else %}
+          <div class="actions-flex-box">
+            <form class="inline-form" method="POST" action="{{ url_for('admin_change_role', user_id=m.user_id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+              <select name="role" class="role-select">
+                {% for r in roles %}
+                <option value="{{ r }}" {% if r == m.role %}selected{% endif %}>{{ r }}</option>
+                {% endfor %}
+              </select>
+              <button type="submit" class="btn btn-secondary btn-sm">Change Role</button>
+            </form>
+            <form class="inline-form" method="POST" action="{{ url_for('admin_delete_user', user_id=m.user_id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+              <button type="submit" class="btn btn-danger btn-sm"
+                      onclick="return confirm('Remove {{ m.username }}\'s access entirely? Their account is deleted and every active session signed out.')">
+                Remove Access
+              </button>
+            </form>
+          </div>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state">No team members yet.</div>
+  {% endif %}
+  <p class="field-hint">
+    Role changes and removals sign the affected user out of all active
+    sessions immediately. A workspace always keeps at least one active
+    TENANT_ADMIN — promote a successor before demoting or removing the last one.
+  </p>
+</section>
+
+{% endblock %}

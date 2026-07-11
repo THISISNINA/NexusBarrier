@@ -1,56 +1,147 @@
-{% extends "base.html" %}
+{% extends "base.html" %} {% block title %}Case {{ case['case_id'][:8] }}{%
+endblock %} {% block content %}
+<div class="page-header">
+  <a href="{{ url_for('alert_queue') }}" class="back-link"
+    >&larr; Back to queue</a
+  >
+  <h1>Case <span class="mono">{{ case['case_id'] }}</span></h1>
+  <span class="badge status-{{ case['status']|lower }} badge-lg"
+    >{{ case['status'] }}</span
+  >
+</div>
 
-{% block title %}Case {{ case['case_id'][:8] }}{% endblock %}
+<section class="panel">
+  <h2>Case Information</h2>
+  <dl class="kv-grid">
+    <dt>Case ID</dt>
+    <dd class="mono">{{ case['case_id'] }}</dd>
+    <dt>Account</dt>
+    <dd class="mono">{{ case['account_id'] }}</dd>
+    <dt>Status</dt>
+    <dd>
+      <span class="badge status-{{ case['status']|lower }}"
+        >{{ case['status'] }}</span
+      >
+    </dd>
+    <dt>Created</dt>
+    <dd class="mono">{{ case['created_at'][:19].replace('T', ' ') }}</dd>
+    <dt>Last Updated</dt>
+    <dd class="mono">{{ case['updated_at'][:19].replace('T', ' ') }}</dd>
+  </dl>
+</section>
 
-{% block content %}
-    <div class="page-header">
-        <a href="{{ url_for('alert_queue') }}" class="back-link">&larr; Back to queue</a>
-        <h1>Case <span class="mono">{{ case['case_id'] }}</span></h1>
-        <span class="badge status-{{ case['status']|lower }} badge-lg">{{ case['status'] }}</span>
+<section class="panel">
+  <h2>Case Narrative (Overall Assessment)</h2>
+  <form
+    method="POST"
+    action="{{ url_for('update_case_narrative', case_id=case['case_id']) }}"
+  >
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+    <textarea
+      name="case_narrative"
+      rows="5"
+      placeholder="Overall case assessment, spanning all linked alerts..."
+      style="width: 100%; padding: 8px; border-radius: 4px"
+    >
+{{ case['case_narrative'] or '' }}</textarea
+    >
+    <div class="form-actions" style="margin-top: 8px">
+      <button type="submit" class="btn btn-secondary btn-sm">
+        Save Narrative
+      </button>
     </div>
+  </form>
+</section>
 
-    <section class="panel">
-        <h2>Case Information</h2>
-        <dl class="kv-grid">
-            <dt>Case ID</dt><dd class="mono">{{ case['case_id'] }}</dd>
-            <dt>Account</dt><dd class="mono">{{ case['account_id'] }}</dd>
-            <dt>Status</dt><dd><span class="badge status-{{ case['status']|lower }}">{{ case['status'] }}</span></dd>
-            <dt>Created</dt><dd class="mono">{{ case['created_at'][:19].replace('T', ' ') }}</dd>
-            <dt>Last Updated</dt><dd class="mono">{{ case['updated_at'][:19].replace('T', ' ') }}</dd>
-        </dl>
-    </section>
+<section class="panel">
+  <h2>Linked Alerts ({{ alerts|length }})</h2>
+  {% if not alerts %}
+  <p class="subtle">No alerts linked to this case.</p>
+  {% else %}
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Alert ID</th>
+        <th>Scenario</th>
+        <th>Typology</th>
+        <th>Severity</th>
+        <th>Status</th>
+        <th>Created</th>
+        <th>Linked</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for a in alerts %}
+      <tr>
+        <td class="mono">{{ a['alert_id'][:8] }}&hellip;</td>
+        <td>{{ a['scenario_code'] }}</td>
+        <td>
+          {% if a['typology'] %}<span class="badge typology-badge"
+            >{{ a['typology']|replace('_',' ') }}</span
+          >{% else %}—{% endif %}
+        </td>
+        <td>
+          <span class="badge severity-{{ a['severity']|lower }}"
+            >{{ a['severity'] }}</span
+          >
+        </td>
+        <td>
+          <span class="badge status-{{ a['status']|lower }}"
+            >{{ a['status'] }}</span
+          >
+        </td>
+        <td class="mono">{{ a['created_at'][:19].replace('T', ' ') }}</td>
+        <td class="mono">{{ a['linked_at'][:19].replace('T', ' ') }}</td>
+        <td>
+          <a
+            class="btn btn-secondary btn-sm"
+            href="{{ url_for('alert_detail', alert_id=a['alert_id']) }}"
+            >View</a
+          >
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
 
-    <section class="panel">
-        <h2>Linked Alerts ({{ alerts|length }})</h2>
-        {% if not alerts %}
-        <p class="subtle">No alerts linked to this case.</p>
-        {% else %}
-        <table class="data-table">
-            <thead>
-                <tr>
-                    <th>Alert ID</th>
-                    <th>Scenario</th>
-                    <th>Severity</th>
-                    <th>Status</th>
-                    <th>Created</th>
-                    <th>Linked</th>
-                    <th></th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for a in alerts %}
-                <tr>
-                    <td class="mono">{{ a['alert_id'][:8] }}&hellip;</td>
-                    <td>{{ a['scenario_code'] }}</td>
-                    <td><span class="badge severity-{{ a['severity']|lower }}">{{ a['severity'] }}</span></td>
-                    <td><span class="badge status-{{ a['status']|lower }}">{{ a['status'] }}</span></td>
-                    <td class="mono">{{ a['created_at'][:19].replace('T', ' ') }}</td>
-                    <td class="mono">{{ a['linked_at'][:19].replace('T', ' ') }}</td>
-                    <td><a class="btn btn-secondary btn-sm" href="{{ url_for('alert_detail', alert_id=a['alert_id']) }}">View</a></td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        {% endif %}
-    </section>
+<section class="panel">
+  <h2>Combined Transaction Timeline</h2>
+  {% if not timeline %}
+  <p class="subtle">No transactions linked across these alerts.</p>
+  {% else %}
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Transaction ID</th>
+        <th>From Alert</th>
+        <th>Amount</th>
+        <th>Date</th>
+        <th>Country</th>
+        <th>Counterparty</th>
+        <th>Reference</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for t in timeline %}
+      <tr>
+        <td class="mono">{{ t['transaction_id'][:8] }}&hellip;</td>
+        <td class="mono">
+          <a href="{{ url_for('alert_detail', alert_id=t['alert_id']) }}"
+            >{{ t['alert_id'][:8] }}&hellip;</a
+          >
+        </td>
+        <td class="mono">{{ "%.2f"|format(t['amount']) }}</td>
+        <td class="mono">{{ t['transaction_date'][:19].replace('T', ' ') }}</td>
+        <td>{{ t['country'] }}</td>
+        <td>{{ t['counterparty_name'] or '—' }}</td>
+        <td class="mono">{{ t['reference'] or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
 {% endblock %}

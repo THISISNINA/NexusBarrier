@@ -5,11 +5,31 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 
+import pii_crypto
+
 # ── Configuration ─────────────────────────────────────────────────────────────
 DB_PATH        = Path("data/database/aml_monitoring.db")
 INCOMING_DIR   = Path("data/incoming")
 PROCESSED_DIR  = Path("data/processed")
 REQUIRED_FIELDS = {"transaction_id", "account_id", "amount", "country", "transaction_date"}
+# Item 12: counterparty/reference/wire fields are OPTIONAL — older CSVs
+# without them must keep loading (REQUIRED_FIELDS is unchanged), but when
+# present they're persisted so sanctions screening can read wire-message
+# names independently of the account holder's own name.
+#
+# transaction_type / counterparty_type / counterparty_wallet_address /
+# intermediary_countries: channel + virtual-asset + routing metadata.
+# transaction_type (CASH_DEPOSIT / CASH_WITHDRAWAL / WIRE_TRANSFER / CRYPTO /
+# SALARY / RETAIL) is what lets cash-exclusive scenarios stop evaluating
+# wires and crypto outflows against cash rules; intermediary_countries is a
+# pipe-separated routing path (e.g. "AE|MM|SG") so jurisdiction screening
+# can see every hop a payment touched, not just the declared endpoint.
+OPTIONAL_FIELDS = (
+    "counterparty_name", "reference",
+    "ordering_customer_name", "beneficiary_name", "originating_bank_bic",
+    "transaction_type", "counterparty_type",
+    "counterparty_wallet_address", "intermediary_countries",
+)
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -23,6 +43,19 @@ log = logging.getLogger(__name__)
 
 # ── Database bootstrap ────────────────────────────────────────────────────────
 def init_db(conn: sqlite3.Connection) -> None:
+    # Ensures aml_engine's schema (aml_alerts, customer_profiles, etc.)
+    # already exists before transactions does. Whichever of generator.py /
+    # aml_loader.py / aml_engine.py happens to run first against a brand
+    # new database is otherwise a race over who creates `transactions` —
+    # and the loser of that race would create it via a bare CREATE TABLE
+    # missing company_id (only added below, by _apply_additive_migrations,
+    # which requires the table to already exist to find it). Calling
+    # init_schema() here first, before transactions exists, is a no-op for
+    # the transactions-specific migration but guarantees the rest of the
+    # schema is in place either way.
+    import aml_engine
+    aml_engine.init_schema(conn)
+
     conn.execute("""
         CREATE TABLE IF NOT EXISTS transactions (
             transaction_id   TEXT PRIMARY KEY,   -- enforces idempotency at DB level
@@ -30,9 +63,25 @@ def init_db(conn: sqlite3.Connection) -> None:
             amount           REAL    NOT NULL,
             country          TEXT    NOT NULL,
             transaction_date TEXT    NOT NULL,
-            loaded_at        TEXT    NOT NULL     -- audit: when this row was ingested
+            loaded_at        TEXT    NOT NULL,    -- audit: when this row was ingested
+            counterparty_name      TEXT,          -- item 12: who the money went to/came from
+            reference               TEXT,          -- item 12: payment purpose/memo
+            ordering_customer_name  TEXT,          -- item 12: CORRESPONDENT wire ordering party
+            beneficiary_name        TEXT,          -- item 12: CORRESPONDENT wire beneficiary
+            originating_bank_bic    TEXT,          -- item 12: BIC of the sending bank
+            transaction_type        TEXT,          -- channel: CASH_DEPOSIT/CASH_WITHDRAWAL/WIRE_TRANSFER/CRYPTO/SALARY/RETAIL
+            counterparty_type       TEXT,          -- BANK/CORPORATE/MERCHANT/EMPLOYER/VASP
+            counterparty_wallet_address TEXT,      -- virtual-asset wallet on CRYPTO legs
+            intermediary_countries  TEXT           -- pipe-separated routing path, e.g. "AE|MM|SG"
         )
     """)
+    # Additive migration guard, mirroring aml_engine.py's
+    # _add_column_if_missing pattern, so DBs created before item 12 still
+    # pick up the new columns on next ingestion run without a fresh DB.
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(transactions)").fetchall()}
+    for col in OPTIONAL_FIELDS:
+        if col not in existing:
+            conn.execute(f"ALTER TABLE transactions ADD COLUMN {col} TEXT")
     conn.execute("""
         CREATE TABLE IF NOT EXISTS ingestion_log (
             id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -44,6 +93,10 @@ def init_db(conn: sqlite3.Connection) -> None:
         )
     """)
     conn.commit()
+    # transactions now exists — this backfills company_id/interdiction_status
+    # onto it (the existence-gated block in _apply_additive_migrations that
+    # init_schema()'s call above couldn't reach yet).
+    aml_engine._apply_additive_migrations(conn)
 
 
 # ── Row validation ────────────────────────────────────────────────────────────
@@ -66,7 +119,7 @@ def validate_row(row: dict) -> tuple[bool, str]:
 
 
 # ── Single-file loader ────────────────────────────────────────────────────────
-def load_file(conn: sqlite3.Connection, filepath: Path) -> tuple[int, int]:
+def load_file(conn: sqlite3.Connection, filepath: Path, company_id: str) -> tuple[int, int]:
     accepted = skipped = 0
     loaded_at = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -82,8 +135,12 @@ def load_file(conn: sqlite3.Connection, filepath: Path) -> tuple[int, int]:
                 conn.execute(
                     """
                     INSERT OR IGNORE INTO transactions
-                        (transaction_id, account_id, amount, country, transaction_date, loaded_at)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                        (transaction_id, account_id, amount, country, transaction_date, loaded_at,
+                         counterparty_name, reference, ordering_customer_name,
+                         beneficiary_name, originating_bank_bic,
+                         transaction_type, counterparty_type,
+                         counterparty_wallet_address, intermediary_countries, company_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         row["transaction_id"].strip(),
@@ -92,6 +149,19 @@ def load_file(conn: sqlite3.Connection, filepath: Path) -> tuple[int, int]:
                         row["country"].strip(),
                         row["transaction_date"].strip(),
                         loaded_at,
+                        (row.get("counterparty_name") or "").strip() or None,
+                        (row.get("reference") or "").strip() or None,
+                        (row.get("ordering_customer_name") or "").strip() or None,
+                        (row.get("beneficiary_name") or "").strip() or None,
+                        (row.get("originating_bank_bic") or "").strip() or None,
+                        (row.get("transaction_type") or "").strip().upper() or None,
+                        (row.get("counterparty_type") or "").strip().upper() or None,
+                        # Task 3: virtual-asset wallet addresses are PII —
+                        # encrypt before the row lands in the DB file. NULL-safe,
+                        # so untyped/non-crypto legs (no wallet) stay NULL.
+                        pii_crypto.encrypt_pii((row.get("counterparty_wallet_address") or "").strip() or None),
+                        (row.get("intermediary_countries") or "").strip().upper() or None,
+                        company_id,
                     ),
                 )
                 # rowcount == 0 means transaction_id already existed → duplicate silently ignored
@@ -105,7 +175,20 @@ def load_file(conn: sqlite3.Connection, filepath: Path) -> tuple[int, int]:
 
 
 # ── Orchestrator ──────────────────────────────────────────────────────────────
-def run_ingestion() -> None:
+def run_ingestion(company_id: str) -> None:
+    """Ingests every CSV currently sitting in data/incoming, tagging every
+    row accepted this run with company_id — one company_id per import run
+    (per-row company tagging would need it as a CSV column instead, which
+    isn't how any real bank's file drop works: the file transfer itself
+    identifies who it's from).
+
+    Relies on app.py's /run-pipeline having a single global "one pipeline
+    run at a time" lock (see _pipeline_state), so generator.py's
+    freshly-written file for THIS company_id is the only thing normally
+    pending here — a crashed prior run leaving another company's file
+    behind is the one scenario that would misattribute rows, and isn't
+    guarded against beyond that lock.
+    """
     INCOMING_DIR.mkdir(exist_ok=True)
     PROCESSED_DIR.mkdir(exist_ok=True)
 
@@ -119,10 +202,10 @@ def run_ingestion() -> None:
         init_db(conn)
 
         for filepath in csv_files:
-            log.info("Processing  %s", filepath.name)
+            log.info("Processing  %s for company_id=%s", filepath.name, company_id)
             status = "COMPLETED"
             try:
-                accepted, skipped = load_file(conn, filepath)
+                accepted, skipped = load_file(conn, filepath, company_id)
                 if skipped > 0 and accepted == 0:
                     status = "FAILED"
                 elif skipped > 0:
@@ -155,4 +238,14 @@ def run_ingestion() -> None:
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    run_ingestion()
+    import sys
+    import auth_security
+    # See generator.py — load .env for direct terminal runs so the PII key here
+    # matches the web app's (encrypt/decrypt must use the same key).
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except ImportError:
+        pass
+    cli_company_id = sys.argv[1] if len(sys.argv) > 1 else auth_security.LEGACY_COMPANY_ID
+    run_ingestion(cli_company_id)

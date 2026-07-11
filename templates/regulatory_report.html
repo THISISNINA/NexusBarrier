@@ -1,0 +1,170 @@
+{% extends "base.html" %} {% block title %}Regulatory Report{% endblock %} {%
+block content %}
+<div class="page-header">
+  <h1>Regulatory Reporting Summary</h1>
+  <p class="subtle">
+    Period: <span class="mono">{{ report.period_start }}</span> &rarr;
+    <span class="mono">{{ report.period_end }}</span>
+  </p>
+  <form
+    method="GET"
+    action="{{ url_for('regulatory_report') }}"
+    style="display: flex; gap: 10px; align-items: center; margin-top: 8px"
+  >
+    <label
+      >From
+      <input
+        type="date"
+        name="period_start"
+        value="{{ report.period_start }}"
+        style="padding: 4px"
+    /></label>
+    <label
+      >To
+      <input
+        type="date"
+        name="period_end"
+        value="{{ report.period_end }}"
+        style="padding: 4px"
+    /></label>
+    <button type="submit" class="btn btn-secondary btn-sm">
+      Update Period
+    </button>
+  </form>
+</div>
+
+<section class="panel">
+  <h2>Alert Summary</h2>
+  <div class="stat-grid">
+    <div class="stat-card">
+      <div class="stat-value">{{ report.alert_summary.total }}</div>
+      <div class="stat-label">Total Alerts</div>
+    </div>
+    {% for sev, count in report.alert_summary.by_severity.items() %}
+    <div class="stat-card">
+      <div class="stat-value">{{ count }}</div>
+      <div class="stat-label">{{ sev }} Severity</div>
+    </div>
+    {% endfor %}
+  </div>
+  <table class="data-table" style="margin-top: 14px">
+    <thead>
+      <tr>
+        <th>Scenario</th>
+        <th>Count</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for code, count in report.alert_summary.by_scenario.items() %}
+      <tr>
+        <td class="mono">{{ code }}</td>
+        <td class="mono">{{ count }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="panel">
+  <h2>Disposition Summary</h2>
+  <div class="stat-grid">
+    {% for status, count in report.disposition_summary.items() %}
+    <div class="stat-card">
+      <div class="stat-value">{{ count }}</div>
+      <div class="stat-label">{{ status|replace('_',' ') }}</div>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="panel">
+  <h2>SAR Filing Summary</h2>
+  <dl class="kv-grid">
+    <dt>Total SARs Filed</dt>
+    <dd class="mono">{{ report.sar_summary.total_sars }}</dd>
+    <dt>Avg. Days Alert &rarr; SAR</dt>
+    <dd class="mono">
+      {% if report.sar_summary.avg_days_to_sar is not none %}{{
+      "%.1f"|format(report.sar_summary.avg_days_to_sar) }}{% else %}—{% endif %}
+    </dd>
+    <dt>goAML References (redacted)</dt>
+    <dd>
+      {{ report.sar_summary.goaml_references_redacted|join(', ') or '—' }}
+    </dd>
+  </dl>
+</section>
+
+<section class="panel">
+  <h2>Mandatory CTR Filings</h2>
+  <p class="subtle" style="margin-bottom: 12px">
+    Auto-filed by the engine for any account whose same-day transaction volume
+    crossed the AED 40,000 reporting threshold. Non-discretionary — no analyst
+    judgment involved.
+    <a
+      href="{{ url_for('ctr_filings', date_from=report.period_start, date_to=report.period_end) }}"
+      style="margin-left: 8px"
+      >View all filings for this period &rarr;</a
+    >
+  </p>
+  {% if report.ctr_summary %}
+  <div class="stat-grid">
+    <div class="stat-card">
+      <div class="stat-value" style="color: var(--color-info)">
+        {{ report.ctr_summary.total_filed or 0 }}
+      </div>
+      <div class="stat-label">CTRs Filed This Period</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">
+        AED {{ "{:,.0f}".format(report.ctr_summary.total_amount_reported or 0)
+        }}
+      </div>
+      <div class="stat-label">Total Amount Reported</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">
+        {{ report.ctr_summary.distinct_accounts or 0 }}
+      </div>
+      <div class="stat-label">Distinct Accounts</div>
+    </div>
+  </div>
+  {% else %}
+  <p class="subtle">No CTR data available for this period.</p>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <h2>Analyst Productivity</h2>
+  {% if not report.analyst_productivity %}
+  <p class="subtle">No closures in this period.</p>
+  {% else %}
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Analyst / MLRO</th>
+        <th>Alerts Closed</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for analyst, count in report.analyst_productivity.items() %}
+      <tr>
+        <td class="mono">{{ analyst }}</td>
+        <td class="mono">{{ count }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <h2>SLA Compliance</h2>
+  <div class="stat-card" style="display: inline-block">
+    <div class="stat-value">
+      {% if report.sla_compliance_pct is not none %}{{
+      "%.1f"|format(report.sla_compliance_pct) }}%{% else %}—{% endif %}
+    </div>
+    <div class="stat-label">Closed Alerts Actioned Within SLA</div>
+  </div>
+</section>
+{% endblock %}

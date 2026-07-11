@@ -1,0 +1,132 @@
+{% extends "base.html" %} {% block title %}Customers{% endblock %} {% block
+content %}
+<div class="page-header">
+  <h1>Customer Profiles</h1>
+  <p class="subtle">
+    Read-only KYC risk register &mdash; core identity, screening flags, the
+    system-calculated Initial Risk rating, Customer Risk Rating (CRR), last
+    review date, and open alert count for every customer on file.
+  </p>
+</div>
+
+<section class="panel">
+  <form
+    method="GET"
+    action="{{ url_for('customers') }}"
+    style="
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 14px;
+      flex-wrap: wrap;
+    "
+  >
+    <input
+      type="text"
+      name="q"
+      value="{{ search }}"
+      placeholder="Search by name or account ID..."
+      style="padding: 6px 10px; border-radius: 4px; width: 280px"
+    />
+    <label style="display: flex; align-items: center; gap: 6px">
+      <input
+        type="checkbox"
+        name="edd_only"
+        value="1"
+        {%
+        if
+        edd_only
+        %}checked{%
+        endif
+        %}
+      />
+      EDD-flagged only
+    </label>
+    <button type="submit" class="btn btn-secondary btn-sm">Filter</button>
+    {% if search or edd_only %}<a
+      href="{{ url_for('customers') }}"
+      class="btn btn-secondary btn-sm"
+      >Clear</a
+    >{% endif %}
+  </form>
+
+  {% if not customers %}
+  <div class="empty-state">No customer profiles match these filters.</div>
+  {% else %}
+  <div class="table-scroll">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Account ID</th>
+        <th>Customer Name</th>
+        <th>Customer Type</th>
+        <th>Nationality / Residence</th>
+        <th>Date of Birth</th>
+        <th>Category</th>
+        <th>PEP Status</th>
+        <th>EDD Status</th>
+        <th title="Baseline computed from identity attributes, fixed at onboarding">
+          Onboarding Risk
+        </th>
+        <th title="Current rating — escalates with alert, SAR, and screening history">
+          Current CRR
+        </th>
+        <th>Last Review</th>
+        <th>Open Alerts</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in customers %}
+      <tr>
+        <td class="mono">
+          <a href="{{ url_for('customer_detail', account_id=c.account_id) }}"
+            >{{ c.account_id }}</a
+          >
+        </td>
+        <td>
+          <a href="{{ url_for('customer_detail', account_id=c.account_id) }}"
+            >{{ c.customer_name }}</a
+          >
+        </td>
+        <td>{{ c.customer_type | default('—', true) | replace('_', ' ') | title }}</td>
+        <td class="mono">
+          {{ c.nationality | default('—', true) }} / {{ c.country_of_residence
+          | default('—', true) }}
+        </td>
+        <td class="mono">{{ c.date_of_birth | default('—', true) }}</td>
+        <td>
+          <span class="badge category-badge">{{ c.account_category }}</span>
+        </td>
+        <td>
+          {% if c.is_pep %}<span class="badge risk-high">PEP</span>{% else
+          %}<span class="badge badge-ok">No</span>{% endif %}
+        </td>
+        <td>
+          {% if c.edd_required %}<span class="badge badge-danger">EDD</span>{%
+          else %}<span class="badge badge-ok">No</span>{% endif %}
+        </td>
+        <td>
+          {% if c.initial_risk %}
+          <span
+            class="badge risk-{{ c.initial_risk.tier|lower }}"
+            title="{{ c.initial_risk.factors }}"
+            >{{ c.initial_risk.tier }} &middot; {{ c.initial_risk.score }}/{{
+            c.initial_risk.max_score }}</span
+          >
+          {% else %}—{% endif %}
+        </td>
+        <td>
+          <span class="badge risk-{{ c.risk_rating|lower }}"
+            >{{ c.risk_rating }}</span
+          >
+        </td>
+        <td class="mono">{{ c.risk_rating_date or '—' }}</td>
+        <td class="mono">{{ c.open_alert_count }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

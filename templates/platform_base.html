@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>{% block title %}AML Monitoring{% endblock %} · AML Dashboard</title>
+<title>{% block title %}Platform{% endblock %} · NexusBarrier Platform</title>
 <link rel="stylesheet" href="{{ url_for('static', filename='base.css') }}" />
 {% block extra_css %}{% endblock %}
 <script>
@@ -19,46 +19,19 @@
 <header class="topbar">
 <div class="topbar-inner">
 <div class="nav-left">
-<a href="{{ url_for('dashboard') }}" class="brand">AML Monitoring</a>
-<a href="{{ url_for('dashboard') }}">Dashboard</a>
-<a href="{{ url_for('alert_queue') }}">
-{% if g.user and g.user.role in ('MLRO', 'TENANT_ADMIN') %}Open Queue (All){% else %}Open Queue{% endif %}
-</a>
-{% if g.user and g.user.role in ('MLRO', 'TENANT_ADMIN') %}
-<a href="{{ url_for('alert_queue_escalated') }}">Escalated</a>
-{% endif %}
-<a href="{{ url_for('alert_queue_my_reviews') }}">My Reviews</a>
-<a href="{{ url_for('customers') }}">Customers</a>
-
-<details class="nav-more">
-<summary>More</summary>
-<div class="nav-more-panel">
-<a href="{{ url_for('alert_queue_all') }}">All Alerts</a>
-<a href="{{ url_for('rule_performance') }}">Rule Performance</a>
-<a href="{{ url_for('regulatory_report') }}">Regulatory Report</a>
-<a href="{{ url_for('reports') }}">SLA Reports</a>
-<a href="{{ url_for('ctr_filings') }}">CTR Filings</a>
-<a href="{{ url_for('wire_submit_form') }}">Wire Screening</a>
-{% if g.user and g.user.role == 'TENANT_ADMIN' %}
-<a href="{{ url_for('admin_team') }}">Team &amp; Access</a>
-{% endif %}
+<a href="{{ url_for('platform_dashboard') }}" class="brand">NexusBarrier · Platform Console</a>
 </div>
-</details>
-</div>
-
 <div class="nav-right">
 <button type="button" class="theme-toggle-btn" onclick="toggleNbTheme()" title="Toggle light/dark theme" aria-label="Toggle light/dark theme">
 <svg class="icon-sun" viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"></path></svg>
 <svg class="icon-moon" viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3a7 7 0 0 0 9.79 9.79z"></path></svg>
 </button>
-{% if g.user %}
-<span class="session-id">Hi, {{ g.user.nickname or g.user.username }} <span class="role-badge">{{ g.user.role }}</span></span>
-<form action="{{ url_for('logout') }}" method="POST" style="margin:0;display:inline-flex">
+{% if g.platform_admin %}
+<span class="session-id">{{ g.platform_admin.username }} <span class="role-badge">SUPER_ADMIN</span></span>
+<form action="{{ url_for('platform_logout') }}" method="POST" style="margin:0;display:inline-flex">
 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
 <button type="submit" class="btn-link">Sign Out</button>
 </form>
-{% else %}
-<a href="{{ url_for('login') }}" class="btn-link">Sign In</a>
 {% endif %}
 </div>
 </div>
@@ -77,6 +50,7 @@
 {% block content %}{% endblock %}
 </main>
 
+<footer class="footer">Infrastructure layer only — this console has no access to tenant compliance data.</footer>
 <script>
   function toggleNbTheme() {
     var root = document.documentElement;

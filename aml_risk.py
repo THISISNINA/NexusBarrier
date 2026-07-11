@@ -53,6 +53,51 @@ WEIGHT_SEGMENT        = 0.15
 
 assert abs((WEIGHT_VELOCITY + WEIGHT_JURISDICTION + WEIGHT_STRUCTURING + WEIGHT_SEGMENT) - 1.0) < 1e-9
 
+# ── Risk-tier threshold adjustment ─────────────────────────────────────────
+# Regulatory basis vs. institutional judgment — these are two different
+# things and it matters not to blur them:
+#
+# What IS a real, binding requirement: FATF Recommendation 1 establishes
+# the Risk-Based Approach (RBA) — institutions must apply enhanced
+# monitoring to higher-risk customers and are permitted simplified
+# measures for lower-risk ones (FATF Guidance for a Risk-Based Approach —
+# Banking Sector, 2014). FATF Recommendation 12 specifically requires
+# enhanced ongoing monitoring for PEPs. That principle — higher risk
+# means more scrutiny, not the same scrutiny — is genuinely mandated.
+#
+# What is NOT mandated: any specific numeric multiplier. FATF's own
+# guidance is explicit that "national law or regulation might not
+# prescribe exactly how these higher risks are to be mitigated." The
+# 0.7 / 1.0 / 1.3 figures below are OUR chosen calibration implementing
+# the RBA principle — a reasonable starting point, not a statutory
+# figure. A real deployment should have a compliance/legal review sign
+# off on the actual numbers, not inherit these from a demo.
+#
+# Multiplier is applied to a flat AED threshold: < 1.0 lowers the
+# effective threshold (fires more easily — enhanced monitoring), > 1.0
+# raises it (simplified monitoring where justified).
+RISK_TIER_THRESHOLD_MULTIPLIER = {
+    "HIGH": 0.7,
+    "MEDIUM": 1.0,
+    "LOW": 1.3,
+}
+DEFAULT_RISK_TIER_MULTIPLIER = RISK_TIER_THRESHOLD_MULTIPLIER["MEDIUM"]
+# PEP status floors sensitivity at HIGH-risk level regardless of the
+# account's stated risk_rating — reflects FATF R.12's specific PEP
+# treatment as its own enhanced-monitoring trigger, not just a factor
+# rolled into the general risk_rating bucket.
+PEP_THRESHOLD_MULTIPLIER_CAP = RISK_TIER_THRESHOLD_MULTIPLIER["HIGH"]
+
+
+def get_threshold_multiplier(risk_rating: Optional[str], is_pep: bool) -> float:
+    """Multiplier to apply to a flat AED threshold for this customer.
+    See the module-level comment above for what's regulatory basis vs.
+    institutional calibration."""
+    multiplier = RISK_TIER_THRESHOLD_MULTIPLIER.get(risk_rating, DEFAULT_RISK_TIER_MULTIPLIER)
+    if is_pep:
+        multiplier = min(multiplier, PEP_THRESHOLD_MULTIPLIER_CAP)
+    return multiplier
+
 # ── Jurisdiction risk tiers (finer-grained than the binary HIGH_RISK set
 # aml_engine.py uses for trigger purposes — this is scoring input only,
 # it does NOT change which transactions trigger SCN_HIGH_RISK_JURISDICTION) ──
@@ -102,7 +147,7 @@ def _tier_from_score(score: float) -> str:
     return "LOW"
 
 
-def _velocity_score(conn: sqlite3.Connection, account_id: str, as_of_date: str) -> float:
+def _velocity_score(conn: sqlite3.Connection, account_id: str, as_of_date: str, company_id: str) -> float:
     """Compares recent transaction velocity (count + volume, last 14 days)
     against the account's own 90-day baseline rate. Returns a 0-100 score
     via a smooth ratio curve rather than a single trigger multiple, so an
@@ -112,19 +157,20 @@ def _velocity_score(conn: sqlite3.Connection, account_id: str, as_of_date: str) 
         WITH recent AS (
             SELECT COUNT(*) AS cnt, COALESCE(SUM(amount), 0) AS vol
             FROM transactions
-            WHERE account_id = :acct
+            WHERE account_id = :acct AND company_id = :company_id
               AND date(transaction_date) BETWEEN date(:as_of, :recent_start) AND date(:as_of)
         ),
         baseline AS (
             SELECT COUNT(*) AS cnt, COALESCE(SUM(amount), 0) AS vol
             FROM transactions
-            WHERE account_id = :acct
+            WHERE account_id = :acct AND company_id = :company_id
               AND date(transaction_date) BETWEEN date(:as_of, :baseline_start) AND date(:as_of, :recent_start)
         )
         SELECT recent.cnt, recent.vol, baseline.cnt, baseline.vol
         FROM recent, baseline
     """, {
         "acct": account_id,
+        "company_id": company_id,
         "as_of": as_of_date,
         "recent_start": f"-{VELOCITY_RECENT_DAYS} days",
         "baseline_start": f"-{VELOCITY_LOOKBACK_DAYS} days",
@@ -148,7 +194,7 @@ def _velocity_score(conn: sqlite3.Connection, account_id: str, as_of_date: str) 
     return max(0.0, min(100.0, (ratio - 1.0) * 20.0))
 
 
-def _jurisdiction_score(conn: sqlite3.Connection, account_id: str, as_of_date: str, lookback_days: int = 365) -> float:
+def _jurisdiction_score(conn: sqlite3.Connection, account_id: str, as_of_date: str, company_id: str, lookback_days: int = 365) -> float:
     """Highest jurisdiction-tier score among the account's transactions in
     the lookback window. Uses MAX rather than an average so a single
     transaction to a black-listed jurisdiction can't be diluted by a long
@@ -166,29 +212,42 @@ def _jurisdiction_score(conn: sqlite3.Connection, account_id: str, as_of_date: s
     real outcome data instead of by inspection.)
     """
     rows = conn.execute("""
-        SELECT DISTINCT country FROM transactions
-        WHERE account_id = ? AND date(transaction_date) BETWEEN date(?, ?) AND date(?)
-    """, (account_id, as_of_date, f"-{lookback_days} days", as_of_date)).fetchall()
+        SELECT DISTINCT country, intermediary_countries FROM transactions
+        WHERE account_id = ? AND company_id = ? AND date(transaction_date) BETWEEN date(?, ?) AND date(?)
+    """, (account_id, company_id, as_of_date, f"-{lookback_days} days", as_of_date)).fetchall()
 
     if not rows:
         return 0.0
-    return max(JURISDICTION_TIER_SCORES.get(c, DEFAULT_JURISDICTION_SCORE) for (c,) in rows)
+    # Intermediary routing hops count exactly like declared endpoints — a
+    # payment routed THROUGH a black-list jurisdiction is exposure to that
+    # jurisdiction regardless of where it claims to terminate (mirrors the
+    # routing-path leg of SCN_HIGH_RISK_JURISDICTION in aml_engine.py).
+    countries: set[str] = set()
+    for country, hops_str in rows:
+        countries.add(country)
+        if hops_str:
+            countries.update(h.strip() for h in hops_str.split("|") if h.strip())
+    return max(JURISDICTION_TIER_SCORES.get(c, DEFAULT_JURISDICTION_SCORE) for c in countries)
 
 
-def _structuring_score(conn: sqlite3.Connection, account_id: str, as_of_date: str, window_days: int = 30) -> float:
+def _structuring_score(conn: sqlite3.Connection, account_id: str, as_of_date: str, company_id: str, window_days: int = 30) -> float:
     """Scores proximity to the just-below-threshold structuring band,
     scaled by transaction count in that band. A single AED 8,600 transaction
     scores low; three AED 9,900 transactions in 30 days scores high — this
     is deliberately a continuous precursor signal to SCN_STRUCTURING_CASH's
     hard 3-transaction trigger, useful for accounts at 1-2 transactions that
     don't yet meet the rule but are trending toward it."""
+    # Cash channels only (NULL-tolerant for untyped legacy rows) — this is
+    # the continuous precursor to SCN_STRUCTURING_CASH, which is itself
+    # cash-exclusive; a wire in the band shouldn't inflate its precursor.
     row = conn.execute("""
         SELECT COUNT(*), COALESCE(AVG(amount), 0), COALESCE(MAX(amount), 0)
         FROM transactions
-        WHERE account_id = ?
+        WHERE account_id = ? AND company_id = ?
           AND amount BETWEEN ? AND ?
+          AND (transaction_type IS NULL OR transaction_type IN ('CASH_DEPOSIT', 'CASH_WITHDRAWAL'))
           AND date(transaction_date) BETWEEN date(?, ?) AND date(?)
-    """, (account_id, STRUCTURING_BAND_LOW, STRUCTURING_BAND_HIGH,
+    """, (account_id, company_id, STRUCTURING_BAND_LOW, STRUCTURING_BAND_HIGH,
           as_of_date, f"-{window_days} days", as_of_date)).fetchone()
 
     count, avg_amt, max_amt = row
@@ -205,7 +264,7 @@ def _structuring_score(conn: sqlite3.Connection, account_id: str, as_of_date: st
     return max(0.0, min(100.0, (proximity * 0.4) + (clustering * 0.6)))
 
 
-def _segment_score(conn: sqlite3.Connection, account_id: str) -> float:
+def _segment_score(conn: sqlite3.Connection, account_id: str, company_id: str) -> float:
     """Static customer-segment baseline: risk_rating + PEP flag + customer_type.
     Unlike the other three components this doesn't look at transaction
     behaviour at all — it reflects who the customer is on file, which is
@@ -214,8 +273,8 @@ def _segment_score(conn: sqlite3.Connection, account_id: str) -> float:
     nudge it."""
     row = conn.execute("""
         SELECT risk_rating, is_pep, customer_type FROM customer_profiles
-        WHERE account_id = ?
-    """, (account_id,)).fetchone()
+        WHERE account_id = ? AND company_id = ?
+    """, (account_id, company_id)).fetchone()
 
     if row is None:
         return RISK_RATING_SCORE["MEDIUM"]  # unknown customer = treat as medium, not zero
@@ -228,15 +287,15 @@ def _segment_score(conn: sqlite3.Connection, account_id: str) -> float:
     return float(score)
 
 
-def compute_risk_score(conn: sqlite3.Connection, account_id: str, as_of_date: Optional[str] = None) -> RiskScoreBreakdown:
+def compute_risk_score(conn: sqlite3.Connection, account_id: str, company_id: str, as_of_date: Optional[str] = None) -> RiskScoreBreakdown:
     """Computes the full weighted composite score for one account. Pure
     read — callers decide whether/how to persist it (see persist_risk_score)."""
     as_of = as_of_date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
-    velocity = _velocity_score(conn, account_id, as_of)
-    jurisdiction = _jurisdiction_score(conn, account_id, as_of)
-    structuring = _structuring_score(conn, account_id, as_of)
-    segment = _segment_score(conn, account_id)
+    velocity = _velocity_score(conn, account_id, as_of, company_id)
+    jurisdiction = _jurisdiction_score(conn, account_id, as_of, company_id)
+    structuring = _structuring_score(conn, account_id, as_of, company_id)
+    segment = _segment_score(conn, account_id, company_id)
 
     composite = (
         velocity * WEIGHT_VELOCITY
@@ -272,7 +331,7 @@ def severity_from_score(score: float, floor_severity: str = "LOW") -> str:
     return order[max(floor_idx, tier_idx)]
 
 
-def persist_risk_score(conn: sqlite3.Connection, breakdown: RiskScoreBreakdown) -> None:
+def persist_risk_score(conn: sqlite3.Connection, breakdown: RiskScoreBreakdown, company_id: str) -> None:
     """Writes a risk_scores row. This table is an append-only history (one
     row per computation), not an upsert-in-place table — see SCHEMA_ADDITIONS
     in aml_engine.py for why: it's the input data for the future feedback
@@ -281,17 +340,17 @@ def persist_risk_score(conn: sqlite3.Connection, breakdown: RiskScoreBreakdown) 
     conn.execute("""
         INSERT INTO risk_scores
             (account_id, velocity_score, jurisdiction_score, structuring_score,
-             segment_score, composite_score, risk_tier, computed_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+             segment_score, composite_score, risk_tier, computed_at, company_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         breakdown.account_id, breakdown.velocity_score, breakdown.jurisdiction_score,
         breakdown.structuring_score, breakdown.segment_score, breakdown.composite_score,
-        breakdown.risk_tier, breakdown.computed_at,
+        breakdown.risk_tier, breakdown.computed_at, company_id,
     ))
 
 
 # ── Feedback-loop hook (read-only summary, not an auto-tuner) ────────────
-def scoring_accuracy_summary(conn: sqlite3.Connection) -> dict:
+def scoring_accuracy_summary(conn: sqlite3.Connection, company_id: str) -> dict:
     """Compares the composite_score recorded at alert-creation time against
     the eventual closure outcome, as a first step toward threshold tuning.
     This does NOT change any weights automatically — it surfaces the data
@@ -312,9 +371,10 @@ def scoring_accuracy_summary(conn: sqlite3.Connection) -> dict:
         FROM aml_alerts a
         JOIN latest_decisions ld ON ld.alert_id = a.alert_id
         WHERE a.risk_tier_at_alert IS NOT NULL AND ld.closure_reason_code IS NOT NULL
+          AND a.company_id = ?
         GROUP BY a.risk_tier_at_alert, ld.closure_reason_code
         ORDER BY a.risk_tier_at_alert, n DESC
-    """).fetchall()
+    """, (company_id,)).fetchall()
 
     summary: dict = {}
     for tier, reason, n in rows:

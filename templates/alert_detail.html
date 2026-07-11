@@ -11,7 +11,33 @@ endblock %} {% block extra_css %}
   >
   <h1>Alert <span class="mono">{{ alert['alert_id'] }}</span></h1>
   <span class="badge status-{{ status|lower }} badge-lg">{{ status }}</span>
+  {% if alert['typology'] %}<span class="badge typology-badge"
+    >{{ alert['typology']|replace('_',' ') }}</span
+  >{% endif %} {% if customer %}<span class="badge category-badge"
+    >{{ customer['account_category'] }}</span
+  >{% endif %} {% if alert['sla_breached'] %}<span class="badge badge-danger"
+    >⏰ SLA BREACHED</span
+  >{% endif %}
 </div>
+
+{% if customer and customer.get('watchlist_entry') %}
+<div
+  class="flash flash-error"
+  style="border-left: 4px solid var(--red); margin-bottom: 16px"
+>
+  <strong>⚠ INTERNAL WATCHLIST:</strong>
+  {{ customer.watchlist_entry.watch_reason|replace('_',' ') }} &mdash; {{
+  customer.watchlist_entry.notes or 'No additional notes.' }}
+</div>
+{% endif %} {% if customer and customer.get('edd_required') %}
+<div
+  class="flash flash-error"
+  style="border-left: 4px solid var(--amber); margin-bottom: 16px"
+>
+  <strong>EDD REQUIRED:</strong> {{ customer.get('edd_reason') or 'Enhanced due
+  diligence on record for this customer.' }}
+</div>
+{% endif %}
 
 <section class="panel">
   <h2>Alert Information</h2>
@@ -79,30 +105,84 @@ endblock %} {% block extra_css %}
 <section class="panel">
   <h2>Customer Profile</h2>
   {% if customer %}
+  <div class="crr-highlight">
+    <span class="crr-label">Current Risk Rating (CRR)</span>
+    <span class="badge badge-lg risk-{{ customer['risk_rating']|lower }}"
+      >{{ customer['risk_rating'] }}</span
+    >
+    {% if customer['risk_rating_reason'] %}
+    <span class="field-hint crr-reason"
+      >{{ customer['risk_rating_reason'] }}</span
+    >
+    {% endif %}
+  </div>
+
   <dl class="kv-grid">
     <dt>Account ID</dt>
-    <dd class="mono">{{ customer['account_id'] }}</dd>
-    <dt>Customer Name</dt>
-    <dd>{{ customer['customer_name'] }}</dd>
-    <dt>Customer Type</dt>
-    <dd>{{ customer['customer_type'] }}</dd>
-    <dt>Risk Rating</dt>
-    <dd>
-      <span class="badge risk-{{ customer['risk_rating']|lower }}"
-        >{{ customer['risk_rating'] }}</span
+    <dd class="mono">
+      <a
+        href="{{ url_for('customer_detail', account_id=customer['account_id']) }}"
+        >{{ customer['account_id'] }}</a
       >
     </dd>
-    <dt>PEP Status</dt>
+    <dt>Customer Name</dt>
     <dd>
-      {% if customer['is_pep'] %}<span class="badge risk-high">PEP</span>{% else
-      %}No{% endif %}
+      <a
+        href="{{ url_for('customer_detail', account_id=customer['account_id']) }}"
+        >{{ customer['customer_name'] }}</a
+      >
     </dd>
+    <dt>Customer Type</dt>
+    <dd>{{ customer['customer_type'] }}</dd>
+    <dt>Account Category</dt>
+    <dd>{{ customer['account_category'] }}</dd>
+    <dt>Date of Birth</dt>
+    <dd class="mono">{{ customer.get('date_of_birth') | default('—', true) }}</dd>
+    <dt>Nationality</dt>
+    <dd class="mono">{{ customer.get('nationality') | default('—', true) }}</dd>
+    <dt>Country of Residence</dt>
+    <dd class="mono">
+      {{ customer.get('country_of_residence') | default('—', true) }}
+    </dd>
+    {% if customer['ubo_names'] %}
+    <dt>Beneficial Owners (UBO)</dt>
+    <dd>{{ customer['ubo_names']|replace('|', ', ') }}</dd>
+    {% endif %} {% if customer['swift_bic'] %}
+    <dt>SWIFT BIC</dt>
+    <dd class="mono">{{ customer['swift_bic'] }}</dd>
+    {% endif %}
+    <dt>PEP Status</dt>
+    <dd>{{ 'Yes' if customer['is_pep'] else 'No' }}</dd>
+    <dt>EDD Status</dt>
+    <dd>{{ 'Required' if customer.get('edd_required') else 'No' }}</dd>
     <dt>Expected Monthly Volume</dt>
     <dd class="mono">
       {{ "%.2f"|format(customer['expected_monthly_volume']) }}
     </dd>
   </dl>
-  {% else %}
+
+  {% set ir = customer.get('initial_risk') %} {% if ir %}
+  <details class="onboarding-audit">
+    <summary>View Onboarding Audit Trail</summary>
+    <dl class="kv-grid onboarding-audit-grid">
+      <dt>Onboarding Baseline</dt>
+      <dd>
+        {{ ir.tier }}
+        <span class="mono">(Score: {{ ir.score }}/{{ ir.max_score }})</span>
+      </dd>
+      <dt>Onboarding Date</dt>
+      <dd class="mono">
+        {{ customer.get('onboarding_date') or customer.get('risk_rating_date')
+        or '—' }}
+      </dd>
+      <dt>Scoring Basis</dt>
+      <dd>
+        {{ ir.factors or 'No elevated risk factors identified at onboarding.'
+        }}
+      </dd>
+    </dl>
+  </details>
+  {% endif %} {% else %}
   <p class="subtle">
     No customer profile on file for account
     <span class="mono">{{ alert['account_id'] }}</span>.
@@ -122,6 +202,9 @@ endblock %} {% block extra_css %}
         <th>Amount</th>
         <th>Date</th>
         <th>Country</th>
+        <th>Type</th>
+        <th>Counterparty</th>
+        <th>Reference</th>
       </tr>
     </thead>
     <tbody>
@@ -133,11 +216,76 @@ endblock %} {% block extra_css %}
           {{ tx['transaction_date'][:19].replace('T', ' ') }}
         </td>
         <td>{{ tx['country'] }}</td>
+        <td>{{ tx['transaction_type'] or '—' }}</td>
+        <td>{{ tx['counterparty_name'] or '—' }}</td>
+        <td class="mono">{{ tx['reference'] or '—' }}</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
+
+  {% set routed_txs = transactions | selectattr('intermediary_countries') | list %}
+  {% if routed_txs %}
+  <h3 style="margin-top: 18px">Virtual Asset / Intermediary Routing Detail</h3>
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Transaction ID</th>
+        <th>Counterparty Type</th>
+        <th>Wallet Address</th>
+        <th>Routing Path</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for tx in routed_txs %}
+      <tr>
+        <td class="mono">{{ tx['transaction_id'] }}</td>
+        <td>{{ tx['counterparty_type'] or '—' }}</td>
+        <td class="mono">{{ tx['counterparty_wallet_address'] or '—' }}</td>
+        <td class="mono">{{ tx['intermediary_countries']|replace('|', ' → ') }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p class="field-hint" style="margin-top: 6px">
+    Full hop-by-hop routing path for this transaction, independent of its
+    declared endpoint country — lets an analyst see intermediary
+    jurisdictions a payment or virtual-asset transfer passed through even
+    when the endpoint itself is not high-risk.
+  </p>
   {% endif %}
+
+  {% if customer and customer['account_category'] == 'CORRESPONDENT' %} {% set
+  wire_txs = transactions | selectattr('ordering_customer_name') | list %} {% if
+  wire_txs %}
+  <h3 style="margin-top: 18px">
+    Wire Details (Category 3 — Correspondent Banking)
+  </h3>
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Transaction ID</th>
+        <th>Ordering Customer</th>
+        <th>Beneficiary</th>
+        <th>Originating Bank BIC</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for tx in wire_txs %}
+      <tr>
+        <td class="mono">{{ tx['transaction_id'] }}</td>
+        <td>{{ tx['ordering_customer_name'] or '—' }}</td>
+        <td>{{ tx['beneficiary_name'] or '—' }}</td>
+        <td class="mono">{{ tx['originating_bank_bic'] or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p class="field-hint" style="margin-top: 6px">
+    Ordering customer and beneficiary names on wire messages are screened
+    independently of the account holder's own name (Category 3 screening).
+  </p>
+  {% endif %} {% endif %} {% endif %}
 </section>
 
 <section class="panel">
@@ -148,21 +296,79 @@ endblock %} {% block extra_css %}
     method="POST"
     action="{{ url_for('claim_alert', alert_id=alert['alert_id']) }}"
   >
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
     <button type="submit" class="btn btn-primary">Claim Alert</button>
   </form>
 
-  {% elif status in ('UNDER_REVIEW', 'ESCALATED') %} {% if status == 'ESCALATED'
-  and current_role != 'MLRO' %}
+  {% elif status == 'DRAFT_SAR' %} {% if current_role != 'MLRO' %}
+  <p class="subtle">
+    A SAR has been drafted for this alert and is awaiting final submission by
+    the MLRO.
+  </p>
+  {% else %}
+  <div class="investigation-panel">
+    <h3>Submit SAR</h3>
+    <form
+      method="POST"
+      action="{{ url_for('submit_sar', alert_id=alert['alert_id']) }}"
+    >
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+      <div class="form-group">
+        <label for="goaml_reference_number"
+          >goAML Reference Number <span class="required">*</span></label
+        >
+        <input
+          type="text"
+          id="goaml_reference_number"
+          name="goaml_reference_number"
+          required
+          placeholder="Local goAML tracking reference number"
+        />
+      </div>
+      <div class="form-group">
+        <label for="submit_narrative">Final Submission Note</label>
+        <textarea
+          id="submit_narrative"
+          name="narrative"
+          rows="3"
+          placeholder="Optional closing note for the audit trail..."
+        ></textarea>
+      </div>
+      <div class="form-group">
+        <label style="display: flex; gap: 8px; align-items: flex-start">
+          <input
+            type="checkbox"
+            name="self_review_attestation"
+            style="margin-top: 3px"
+          />
+          <span>
+            Self-review attestation &mdash; tick only if you escalated this
+            alert and are the sole MLRO in this workspace. Filing the SAR closes
+            the alert, so the same four-eyes rule applies; the closure is
+            stamped <span class="mono">self_reviewed</span> on the audit trail.
+          </span>
+        </label>
+      </div>
+      <div class="form-actions">
+        <button type="submit" class="btn btn-danger">
+          Submit SAR &amp; Close Alert
+        </button>
+      </div>
+    </form>
+  </div>
+  {% endif %} {% elif status in ('UNDER_REVIEW', 'ESCALATED') %} {% if status ==
+  'ESCALATED' and current_role != 'MLRO' %}
   <p class="subtle">
     This alert has been escalated to the MLRO for sign-off. Only an MLRO can
-    close it or return it to the analyst queue &mdash; no action is available
-    here while it remains escalated.
+    close it, draft a SAR, or return it to the analyst queue &mdash; no action
+    is available here while it remains escalated.
   </p>
   {% else %}
   <div class="investigation-panel">
     <h3>Investigation Panel</h3>
 
     <form method="POST" id="workflow-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
       <div class="form-group">
         <label for="narrative">Narrative <span class="required">*</span></label>
         <textarea
@@ -174,6 +380,22 @@ endblock %} {% block extra_css %}
           placeholder="Document your findings..."
         ></textarea>
       </div>
+
+      {% if current_role == 'MLRO' %}
+      <div class="form-group">
+        <label for="mlro_rationale">MLRO Independent Rationale</label>
+        <textarea
+          id="mlro_rationale"
+          name="mlro_rationale"
+          rows="4"
+          placeholder="MLRO's independent assessment, kept separate from the analyst's narrative above..."
+        ></textarea>
+        <span class="field-hint" style="margin-top: 6px; display: block">
+          Recorded separately from the analyst narrative on the Audit Trail as
+          "MLRO Decision".
+        </span>
+      </div>
+      {% endif %}
 
       <div class="form-group">
         <label for="closure_reason_code">Closure Reason</label>
@@ -224,6 +446,25 @@ endblock %} {% block extra_css %}
         </span>
       </div>
 
+      {% if current_role == 'MLRO' and status == 'ESCALATED' %}
+      <div class="form-group">
+        <label style="display: flex; gap: 8px; align-items: flex-start">
+          <input
+            type="checkbox"
+            name="self_review_attestation"
+            style="margin-top: 3px"
+          />
+          <span>
+            Self-review attestation &mdash; tick only if you escalated this
+            alert and are the sole MLRO in this workspace. Confirms you have
+            independently reviewed your own escalation; the closure is stamped
+            <span class="mono">self_reviewed</span> on the audit trail. Leave
+            unticked for normal four-eyes closures.
+          </span>
+        </label>
+      </div>
+      {% endif %}
+
       <div class="form-actions">
         <button
           type="submit"
@@ -241,6 +482,14 @@ endblock %} {% block extra_css %}
           class="btn btn-secondary"
         >
           Escalate
+        </button>
+        {% endif %} {% if status == 'ESCALATED' and current_role == 'MLRO' %}
+        <button
+          type="submit"
+          formaction="{{ url_for('draft_sar', alert_id=alert['alert_id']) }}"
+          class="btn btn-secondary"
+        >
+          Draft SAR
         </button>
         {% endif %}
       </div>
@@ -315,6 +564,7 @@ endblock %} {% block extra_css %}
       action="{{ url_for('create_case', alert_id=alert['alert_id']) }}"
       class="inline-form"
     >
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
       <button type="submit" class="btn btn-secondary btn-sm">
         Create Case from this Alert
       </button>
@@ -329,6 +579,7 @@ endblock %} {% block extra_css %}
       style="gap: 6px"
       onsubmit="return submitLinkToCase(this);"
     >
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
       <select
         id="link-case-select"
         style="padding: 5px 8px; border-radius: 4px"
@@ -408,7 +659,53 @@ endblock %} {% block extra_css %}
   {% endif %} {% endif %}
 </section>
 
-{% if time_in_review and time_in_review.view_count %}
+{% if overlapping_alerts %}
+<section class="panel" style="border-left: 3px solid var(--red)">
+  <h2>⚠ Shares Transactions With Other Open Alerts</h2>
+  <p class="subtle">
+    These alerts are built from at least one of the exact same transactions as
+    this one &mdash; stronger evidence than similar timing alone, and worth
+    reviewing together regardless of whether they're already grouped into a
+    case.
+  </p>
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Alert ID</th>
+        <th>Scenario</th>
+        <th>Severity</th>
+        <th>Status</th>
+        <th>Shared Transactions</th>
+        <th>Created</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for oa in overlapping_alerts %}
+      <tr>
+        <td class="mono">
+          <a href="{{ url_for('alert_detail', alert_id=oa['alert_id']) }}"
+            >{{ oa['alert_id'][:8] }}&hellip;</a
+          >
+        </td>
+        <td>{{ oa['scenario_code'] }}</td>
+        <td>
+          <span class="badge severity-{{ oa['severity']|lower }}"
+            >{{ oa['severity'] }}</span
+          >
+        </td>
+        <td>
+          <span class="badge status-{{ oa['status']|lower }}"
+            >{{ oa['status'] }}</span
+          >
+        </td>
+        <td class="mono">{{ oa['shared_transaction_count'] }}</td>
+        <td class="mono">{{ oa['created_at'][:19].replace('T', ' ') }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %} {% if time_in_review and time_in_review.view_count %}
 <section class="panel">
   <h2>Investigation Activity</h2>
   <dl class="kv-grid">
@@ -450,7 +747,8 @@ endblock %} {% block extra_css %}
         <th>Role</th>
         <th>Status</th>
         <th>Closure/Escalation Reason</th>
-        <th>Notes / Narrative</th>
+        <th>Analyst Assessment</th>
+        <th>MLRO Decision</th>
         <th>SAR Reference</th>
       </tr>
     </thead>
@@ -462,8 +760,16 @@ endblock %} {% block extra_css %}
         <td class="mono">{{ d['analyst_role'] or '—' }}</td>
         <td>
           <span class="badge status-{{ d['workflow_status']|lower }}">
-            {{ d['workflow_status'] }}
+            {{ 'SAR Draft Created' if d['workflow_status'] == 'DRAFT_SAR' else
+            d['workflow_status'] }}
           </span>
+          {% if d['self_reviewed'] %}
+          <span
+            class="badge status-escalated"
+            title="Sole-MLRO self-reviewed closure — escalator and closer are the same MLRO under an on-screen attestation."
+            >SELF-REVIEWED</span
+          >
+          {% endif %}
         </td>
 
         <td>{{ d['closure_reason_code'] or '—' }}</td>
@@ -471,9 +777,18 @@ endblock %} {% block extra_css %}
         <td>
           <div
             class="narrative-text"
-            style="max-width: 300px; word-wrap: break-word"
+            style="max-width: 260px; word-wrap: break-word"
           >
             {{ d['risk_justification_narrative'] or 'No comments provided.' }}
+          </div>
+        </td>
+
+        <td>
+          <div
+            class="narrative-text"
+            style="max-width: 260px; word-wrap: break-word"
+          >
+            {{ d['mlro_rationale'] or '—' }}
           </div>
         </td>
 

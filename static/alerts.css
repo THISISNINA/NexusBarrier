@@ -60,16 +60,16 @@ body > div {
   display: flex;
   align-items: center;
   gap: 10px;
-  background: rgba(88, 166, 255, 0.1);
-  border: 1px solid rgba(88, 166, 255, 0.3);
+  background: var(--tint-bg-strong);
+  border: 1px solid var(--tint-border-strong);
   border-radius: 8px;
   padding: 10px 14px;
   margin-bottom: 12px;
 }
 
 .bulk-narrative-bar {
-  background: rgba(88, 166, 255, 0.06);
-  border: 1px solid rgba(88, 166, 255, 0.2);
+  background: var(--tint-bg-soft);
+  border: 1px solid var(--tint-border-soft);
   border-radius: 8px;
   padding: 10px 14px;
   margin-bottom: 12px;
@@ -98,32 +98,42 @@ body > div {
   width: 100%;
   box-sizing: border-box;
   resize: vertical;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
   border-radius: 6px;
-  color: inherit;
+  color: var(--text);
   padding: 8px 10px;
   font-family: inherit;
   font-size: 13px;
 }
 
-.age-badge {
-  display: inline-block;
-  font-size: 11px;
-  padding: 1px 7px;
-  border-radius: 9px;
-  margin-left: 6px;
-  white-space: nowrap;
+/* .age-badge is defined theme-aware (light + dark) in base.css — no
+   need to duplicate it here; the old copy in this file hardcoded
+   dark-only colors with no light equivalent. */
+
+/* Filter-count chip in the filter bar. Uses var(--text)/var(--bg-panel)
+   inverted so it automatically flips between a dark chip on light pages
+   and a light chip on dark pages without any extra variables. */
+.counter-badge {
+  background: var(--text);
+  color: var(--bg-panel);
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-weight: bold;
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+  align-self: flex-end;
+  margin-left: auto;
 }
-.age-badge.age-green {
-  background: rgba(63, 185, 80, 0.2);
-  color: #56d364;
+.counter-badge .counter-highlight {
+  color: var(--counter-highlight);
 }
-.age-badge.age-amber {
-  background: rgba(210, 153, 34, 0.25);
-  color: #e3b341;
+.counter-badge .counter-total {
+  opacity: 0.8;
 }
-.age-badge.age-red {
-  background: rgba(248, 81, 73, 0.25);
-  color: #ff7b72;
+.counter-badge .counter-sep {
+  opacity: 0.5;
 }
