@@ -1,6 +1,5 @@
 """
 aml_service.py — Business Logic / Service Layer
----------------------------------------------------
 Sits between app.py (routing/UI) and aml_engine.py (detection + compliance
 state machine). This is where ALL database access for the dashboard lives.
 
@@ -50,7 +49,7 @@ class AMLService:
     present the error.
     """
 
-    # ── Connection helper ────────────────────────────────────────────────
+    # Connection helper
 
     @staticmethod
     def _connect() -> sqlite3.Connection:
@@ -167,7 +166,7 @@ class AMLService:
         except Exception:
             pass
 
-    # ── Read queries ─────────────────────────────────────────────────────
+    # Read queries
 
     @staticmethod
     def get_alerts_for_role(company_id: str, role: str) -> list[dict]:
@@ -479,7 +478,7 @@ class AMLService:
         finally:
             conn.close()
 
-    # ── Workflow actions (ALL routed through AMLWorkflowManager) ───────────
+    # Workflow actions (ALL routed through AMLWorkflowManager)
 
     @staticmethod
     def _assert_alert_owned_by(conn: sqlite3.Connection, company_id: str, alert_id: str) -> None:
@@ -649,7 +648,7 @@ class AMLService:
         finally:
             conn.close()
 
-    # ── Item 13: DRAFT_SAR workflow ─────────────────────────────────────
+    # Item 13: DRAFT_SAR workflow
 
     @staticmethod
     def draft_sar(company_id: str, alert_id: str, analyst_id: str, analyst_role: Optional[str], mlro_rationale: str) -> None:
@@ -695,7 +694,7 @@ class AMLService:
         finally:
             conn.close()
 
-    # ── Case management (Part 5) ────────────────────────────────────────
+    # Case management (Part 5)
 
     @staticmethod
     def create_case(company_id: str, alert_id: str) -> str:
@@ -900,7 +899,7 @@ class AMLService:
         finally:
             conn.close()
 
-    # ── Item 2: Pre-transaction wire interdiction ─────────────────────────
+    # Item 2: Pre-transaction wire interdiction
 
     @staticmethod
     def get_correspondent_accounts(company_id: str) -> list[dict]:
@@ -975,7 +974,7 @@ class AMLService:
         finally:
             conn.close()
 
-    # ── Item 7: Network / link analysis ──────────────────────────────────
+    # Item 7: Network / link analysis
 
     @staticmethod
     def get_account_network(company_id: str, account_id: str) -> dict:
@@ -1244,7 +1243,7 @@ class AMLService:
         finally:
             conn.close()
 
-    # ── SLA / Reporting (Part 3) ─────────────────────────────────────────
+    # SLA / Reporting (Part 3)
 
     @staticmethod
     def get_sla_report(company_id: str) -> dict:
@@ -1259,7 +1258,7 @@ class AMLService:
         finally:
             conn.close()
 
-    # ── Item 2: Time-in-review metrics for the Dashboard ────────────────
+    # Item 2: Time-in-review metrics for the Dashboard
 
     @staticmethod
     def get_time_in_review_metrics(company_id: str) -> dict:
@@ -1315,7 +1314,7 @@ class AMLService:
     # like every other scenario (see aml_engine.py). get_screening_lists()
     # was removed along with screening.html and the /screening route.
 
-    # ── Item 9: Customers page ───────────────────────────────────────────
+    # Item 9: Customers page
 
     @staticmethod
     def get_customers(company_id: str, search: Optional[str] = None, edd_only: bool = False) -> list[dict]:
@@ -1389,7 +1388,7 @@ class AMLService:
         finally:
             conn.close()
 
-    # ── Item 17: Rule performance / false-positive rate per scenario ────
+    # Item 17: Rule performance / false-positive rate per scenario
 
     @staticmethod
     def get_ctr_filings(
@@ -1511,7 +1510,7 @@ class AMLService:
         finally:
             conn.close()
 
-    # ── Item 18: Regulatory reporting summary ────────────────────────────
+    # Item 18: Regulatory reporting summary
 
     @staticmethod
     def get_regulatory_report(company_id: str, period_start: Optional[str] = None, period_end: Optional[str] = None) -> dict:

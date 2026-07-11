@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pii_crypto
 
-# ── Configuration ─────────────────────────────────────────────────────────────
+# Configuration
 DB_PATH        = Path("data/database/aml_monitoring.db")
 INCOMING_DIR   = Path("data/incoming")
 PROCESSED_DIR  = Path("data/processed")
@@ -31,7 +31,7 @@ OPTIONAL_FIELDS = (
     "counterparty_wallet_address", "intermediary_countries",
 )
 
-# ── Logging ───────────────────────────────────────────────────────────────────
+# Logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s  %(levelname)-8s  %(message)s",
@@ -41,7 +41,7 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 
-# ── Database bootstrap ────────────────────────────────────────────────────────
+# Database bootstrap
 def init_db(conn: sqlite3.Connection) -> None:
     # Ensures aml_engine's schema (aml_alerts, customer_profiles, etc.)
     # already exists before transactions does. Whichever of generator.py /
@@ -99,7 +99,7 @@ def init_db(conn: sqlite3.Connection) -> None:
     aml_engine._apply_additive_migrations(conn)
 
 
-# ── Row validation ────────────────────────────────────────────────────────────
+# Row validation
 def validate_row(row: dict) -> tuple[bool, str]:
     if not REQUIRED_FIELDS.issubset(row.keys()):
         return False, f"Missing fields: {REQUIRED_FIELDS - row.keys()}"
@@ -118,7 +118,7 @@ def validate_row(row: dict) -> tuple[bool, str]:
     return True, ""
 
 
-# ── Single-file loader ────────────────────────────────────────────────────────
+# Single-file loader
 def load_file(conn: sqlite3.Connection, filepath: Path, company_id: str) -> tuple[int, int]:
     accepted = skipped = 0
     loaded_at = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
@@ -174,7 +174,7 @@ def load_file(conn: sqlite3.Connection, filepath: Path, company_id: str) -> tupl
     return accepted, skipped
 
 
-# ── Orchestrator ──────────────────────────────────────────────────────────────
+# Orchestrator
 def run_ingestion(company_id: str) -> None:
     """Ingests every CSV currently sitting in data/incoming, tagging every
     row accepted this run with company_id — one company_id per import run
@@ -236,7 +236,7 @@ def run_ingestion(company_id: str) -> None:
     log.info("Ingestion run complete.")
 
 
-# ── Entry point ───────────────────────────────────────────────────────────────
+# Entry point
 if __name__ == "__main__":
     import sys
     import auth_security

@@ -36,7 +36,7 @@ app = Flask(__name__, template_folder=template_dir)
 # (see auth_security._cookie_secure).
 from werkzeug.middleware.proxy_fix import ProxyFix
 app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
-# ── Task 4: stable, environment-backed secret key ────────────────────────
+# Task 4: stable, environment-backed secret key
 # `os.urandom(24)` minted a FRESH key every time this module was imported.
 # Under any multi-process server (Gunicorn's `--workers N`, or even a single
 # worker that gets restarted) each process would hold a different key, so a
@@ -87,7 +87,7 @@ try:
 except Exception as e:
     print(f"Warning seeding platform admin: {e}")
 
-# ── Real auth ────────────────────────────────────────────────────────────
+# Real auth
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "GET":
@@ -283,7 +283,7 @@ def forgot_password():
     return redirect(url_for("login"))
 
 
-# ── Platform Super Admin (infrastructure layer only) ──────────────────────
+# Platform Super Admin (infrastructure layer only)
 # The Super Admin's identity lives in platform.db and their token carries
 # no company_id (see auth_security's platform section). The routes below
 # touch exactly two things in the main database — the companies and users
@@ -452,7 +452,7 @@ def platform_company_status(company_id):
     return redirect(url_for("platform_dashboard"))
 
 
-# ── Tenant Admin: team management & access requests ───────────────────────
+# Tenant Admin: team management & access requests
 # Everything below runs through TenantScopedDB, so every read and write is
 # structurally pinned to the session's own company_id — a Tenant Admin
 # acting on another workspace's user_id affects zero rows, and the flash
@@ -571,7 +571,7 @@ def admin_delete_user(user_id):
     return redirect(url_for("admin_team"))
 
 
-# ── Cooldowns on the two destructive/expensive admin actions ──────────────
+# Cooldowns on the two destructive/expensive admin actions
 # Both actions are now MLRO-only and company-scoped (see /reset-demo and
 # /run-pipeline below), but the client-side confirm() dialog on their
 # buttons is still just a UX nicety, not a real gate — a logged-in MLRO
@@ -1072,7 +1072,7 @@ def rule_performance():
     rows = AMLService.get_rule_performance(g.user["company_id"])
     return render_template("rule_performance.html", rows=rows, current_role=g.user["role"])
 
-# ── Item 2: Wire interdiction routes ──────────────────────────────────────
+# Item 2: Wire interdiction routes
 
 @app.route("/wire")
 @auth_security.require_auth
@@ -1116,7 +1116,7 @@ def wire_log():
     log_entries = AMLService.get_wire_interdiction_log(g.user["company_id"])
     return render_template("wire_log.html", entries=log_entries, current_role=g.user["role"])
 
-# ── Item 7: Network / link analysis routes ────────────────────────────────
+# Item 7: Network / link analysis routes
 
 @app.route("/network/<account_id>")
 @auth_security.require_auth

@@ -1,6 +1,5 @@
 """
 sanctions_pep_seed.py
-─────────────────────
 Creates and seeds the separate screening.db database with:
   - sanctions_list   : 50+ fictional sanctioned individuals and entities
   - pep_list         : 30+ fictional politically exposed persons
@@ -98,7 +97,7 @@ def _normalize(name: str) -> str:
     return re.sub(r"[^A-Z0-9 ]", "", name.upper()).strip()
 
 
-# ── Sanctions list seed data ───────────────────────────────────────────────────
+# Sanctions list seed data
 SANCTIONS_ENTRIES = [
     ("Omar Al Zaabi",            "OFAC_DEMO",  "INDIVIDUAL", "Republic of Valdoria"),
     ("Jassim Al Thani",          "OFAC_DEMO",  "INDIVIDUAL", "Republic of Valdoria"),
@@ -154,7 +153,7 @@ SANCTIONS_ENTRIES = [
 ]
 
 
-# ── PEP list seed data ─────────────────────────────────────────────────────────
+# PEP list seed data
 PEP_ENTRIES = [
     ("Mohammed Al Rashidi",    "HEAD_OF_STATE", "Republic of Valdoria",       "2018-03-01", None),
     ("Chidi Okafor",           "HEAD_OF_STATE", "Estoria Republic",           "2020-07-15", None),
@@ -189,7 +188,7 @@ PEP_ENTRIES = [
 ]
 
 
-# ── Internal watchlist seed data ───────────────────────────────────────────────
+# Internal watchlist seed data
 WATCHLIST_ENTRIES = [
     ("Fatima Bint Rashid",  None,       "PRIOR_SAR",    "MLRO_01",   "Prior SAR filed 2024-03 — structuring pattern confirmed."),
     ("Khalid Al Mansoori",  None,       "PRIOR_SAR",    "MLRO_01",   "Prior SAR filed 2023-11 — PEP high-value transactions."),

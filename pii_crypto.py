@@ -1,6 +1,5 @@
 """
 pii_crypto — field-level encryption for sensitive customer PII at rest.
-─────────────────────────────────────────────────────────────────────────────
 
 Task 3 (PII-at-rest): highly sensitive customer metadata — `customer_name`,
 `nationality`, `date_of_birth` (on customer_profiles) and

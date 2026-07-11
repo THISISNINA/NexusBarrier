@@ -12,7 +12,7 @@ import aml_risk
 import auth_security
 import pii_crypto
 
-# ── Configuration ──────────────────────────────────────────────────────────────
+# Configuration
 # Anchored to this file's own location, not the process's working
 # directory. A bare relative Path resolves against whatever folder the
 # process happened to be launched from — fine when you always run
@@ -28,7 +28,7 @@ SCREENING_DB_PATH = _BASE_DIR / "data" / "database" / "screening.db"  # Separate
 # Thresholds (AED) — aligned to CBUAE AML/CFT Guidelines and FATF RBA
 CASH_AGG_6M_THRESHOLD = 55_000
 
-# ── Cash-channel discrimination ────────────────────────────────────────────
+# Cash-channel discrimination
 # Which transaction_type values count as physical currency. The cash-
 # exclusive rules (SCN_CASH_AGG_6M, SCN_STRUCTURING_CASH,
 # SCN_MULTI_ACCOUNT_STRUCTURING, CTR filings) previously evaluated EVERY
@@ -49,7 +49,7 @@ CASH_TYPE_SQL_PREDICATE = (
     "(transaction_type IS NULL OR transaction_type IN ('CASH_DEPOSIT', 'CASH_WITHDRAWAL'))"
 )
 
-# ── Expected-volume-aware cash aggregation (SCN_CASH_AGG_6M) ──────────────
+# Expected-volume-aware cash aggregation (SCN_CASH_AGG_6M)
 # The flat AED 55,000 floor alone contradicts the customer_profiles data
 # model: a customer with expected_monthly_volume of AED 50,000 crosses a
 # 55k six-month aggregate in week five of completely normal, KYC-declared
@@ -117,7 +117,7 @@ HIGH_RISK_JURISDICTIONS = {
     "AF", "HT", "PK", "PA", "PH",
 }
 
-# ── Typology map: scenario → FATF typology tag ────────────────────────────────
+# Typology map: scenario → FATF typology tag
 SCENARIO_TYPOLOGY_MAP = {
     "SCN_CASH_AGG_6M":               "CASH_INTENSIVE",
     "SCN_STRUCTURING_CASH":          "STRUCTURING",
@@ -138,7 +138,7 @@ SCENARIO_TYPOLOGY_MAP = {
     "SCN_INTERNAL_WATCHLIST":        "INTERNAL_WATCHLIST",
 }
 
-# ── Logging ────────────────────────────────────────────────────────────────────
+# Logging
 # Anchored the same way as DB_PATH above — a bare relative path here
 # crashes at import time (FileNotFoundError, not a silent misbehavior)
 # if "logs/" doesn't happen to exist relative to wherever the process
@@ -155,7 +155,7 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 
-# ── Task 2: per-record robustness accounting ─────────────────────────────────
+# Task 2: per-record robustness accounting
 # run_engine processes each active scenario, and each scenario raises alerts
 # per account/transaction via raise_alert(). A single malformed customer row or
 # a transient DB error while scoring ONE record must not abort the whole
@@ -185,13 +185,13 @@ def get_errored_records_count() -> int:
     return _errored_records_count
 
 
-# ── CUSTOM WORKFLOW EXCEPTIONS ────────────────────────────────────────────────
+# CUSTOM WORKFLOW EXCEPTIONS
 class WorkflowError(Exception):
     """Raised when an invalid state transition or compliance guardrail is breached."""
     pass
 
 
-# ── Database bootstrap ─────────────────────────────────────────────────────────
+# Database bootstrap
 SCHEMA_DDL = """
 CREATE TABLE IF NOT EXISTS aml_scenarios (
     scenario_code TEXT PRIMARY KEY,
@@ -446,7 +446,7 @@ SCENARIO_SEED = [
 ]
 
 
-# ── Screening DB connection ────────────────────────────────────────────────────
+# Screening DB connection
 def _get_screening_conn() -> sqlite3.Connection:
     """Opens a connection to the separate screening.db file.
     This database holds sanctions_list, pep_list, and internal_watchlist —
@@ -596,7 +596,7 @@ def _apply_additive_migrations(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_alerts_priority ON aml_alerts(status, priority_rank)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_alerts_case ON aml_alerts(case_id)")
 
-    # ── Multi-tenant retrofit: company_id on every per-company table ────
+    # Multi-tenant retrofit: company_id on every per-company table
     # Every table below is real operational data owned by exactly one
     # company (aml_scenarios/rule_versions and sanctions_list/pep_list are
     # deliberately excluded — those stay global/shared across tenants).
@@ -797,7 +797,7 @@ def init_schema(conn: sqlite3.Connection) -> None:
     seed_sanctions_list(conn)
 
 
-# ── WORKFLOW STATE MACHINE ENGINE ─────────────────────────────────────────────
+# WORKFLOW STATE MACHINE ENGINE
 class AMLWorkflowManager:
     """Manages the lifecycle, audit logs, and state transitions of alerts."""
 
@@ -913,7 +913,6 @@ class AMLWorkflowManager:
             raise WorkflowError("Filing Failure: Submitting a drafted SAR requires a goaml_reference_number.")
 
         # Four-Eyes / Dual Control (Task 1 — role-based hierarchy)
-        # ────────────────────────────────────────────────────────
         # `self_reviewed` is written to the closing str_decisions row: 1 only
         # on the audited sole-MLRO self-close path below, 0 on every properly
         # dual-controlled closure.
@@ -989,7 +988,7 @@ class AMLWorkflowManager:
 
         closed_at = now if target_status in ['CLOSED_SAR', 'CLOSED_NO_ACTION'] else None
 
-        # ── Execution of your truncated block logic ──
+        # Execution of your truncated block logic
         if target_status in ['CLOSED_SAR', 'CLOSED_NO_ACTION']:
             if not narrative or len(narrative.strip()) < 15:
                 raise WorkflowError("Audit Failure: Detailed risk_justification_narrative is required for case closure.")
@@ -1220,7 +1219,7 @@ def time_in_review_summary(conn: sqlite3.Connection, alert_id: str, company_id: 
     }
 
 
-# ── RBA Customer Layer ─────────────────────────────────────────────────────────
+# RBA Customer Layer
 # Item 3: customer name/CRR/account-category generation has moved to
 # generator.py (the spec's required location). This function is now a
 # lightweight backwards-compatible fallback ONLY — it inserts a bare
@@ -1253,7 +1252,7 @@ def seed_profiles_from_existing_data(conn: sqlite3.Connection) -> int:
     return seeded
 
 
-# ── IMPROVEMENT 5: Duplicate alert deduplication fix ──────────────────────────
+# IMPROVEMENT 5: Duplicate alert deduplication fix
 def _existing_open_alert(conn: sqlite3.Connection, scenario_code: str, account_id: str,
                           period_start: str, period_end: str, company_id: str) -> bool:
     """Returns True if an open/active alert already exists for this scenario+account
@@ -1298,7 +1297,7 @@ def raise_alert(conn: sqlite3.Connection, scenario_code: str, account_id: str, t
         log.info("Suppressed alert (recently cleared): %s / %s", scenario_code, account_id)
         return None
 
-    # ── Task 2: per-record robustness net ────────────────────────────────
+    # Task 2: per-record robustness net
     # Everything below — risk scoring (aml_risk.compute_risk_score, the
     # aml_engine.py:1190 reference point) and the three alert INSERTs — runs
     # for ONE account/transaction. Wrapped in a SAVEPOINT so that if a single
@@ -1385,7 +1384,7 @@ def raise_alert(conn: sqlite3.Connection, scenario_code: str, account_id: str, t
     return alert_id
 
 
-# ── Scenario 1: SCN_CASH_AGG_6M ───────────────────────────────────────────────
+# Scenario 1: SCN_CASH_AGG_6M
 def run_scn_cash_agg_6m(conn: sqlite3.Connection, as_of_date: str, company_id: str) -> Tuple[int, int]:
     """Two weakness fixes live here:
 
@@ -1471,7 +1470,7 @@ def run_scn_cash_agg_6m(conn: sqlite3.Connection, as_of_date: str, company_id: s
     return raised, suppressed
 
 
-# ── Scenario 2: SCN_STRUCTURING_CASH ──────────────────────────────────────────
+# Scenario 2: SCN_STRUCTURING_CASH
 def run_scn_structuring_cash(conn: sqlite3.Connection, as_of_date: str, company_id: str) -> Tuple[int, int]:
     log.info("Running SCN_STRUCTURING_CASH as_of=%s company_id=%s", as_of_date, company_id)
     # Cash-channel only — structuring is specifically the evasion of CASH
@@ -1502,7 +1501,7 @@ def run_scn_structuring_cash(conn: sqlite3.Connection, as_of_date: str, company_
     return raised, suppressed
 
 
-# ── Scenario 3: SCN_HIGH_RISK_JURISDICTION ────────────────────────────────────
+# Scenario 3: SCN_HIGH_RISK_JURISDICTION
 def run_scn_high_risk_jurisdiction(conn: sqlite3.Connection, as_of_date: str, company_id: str) -> Tuple[int, int]:
     log.info("Running SCN_HIGH_RISK_JURISDICTION as_of=%s company_id=%s", as_of_date, company_id)
     params = {"elevated_limit": HIGH_RISK_ELEVATED_LIMIT, "standard_limit": HIGH_RISK_STANDARD_LIMIT,
@@ -1541,7 +1540,7 @@ def run_scn_high_risk_jurisdiction(conn: sqlite3.Connection, as_of_date: str, co
         else:
             suppressed += 1
 
-    # ── Routing-path leg ──────────────────────────────────────────────────
+    # Routing-path leg
     # The endpoint query above only sees t.country — the DECLARED origin/
     # destination. Real payments (SWIFT cover payments, crypto off-ramps)
     # traverse intermediary hops, and a transfer whose declared endpoint is
@@ -1597,7 +1596,7 @@ def run_scn_high_risk_jurisdiction(conn: sqlite3.Connection, as_of_date: str, co
     return raised, suppressed
 
 
-# ── Scenario 4: SCN_BEHAVIOUR_CHANGE ─────────────────────────────────────────
+# Scenario 4: SCN_BEHAVIOUR_CHANGE
 def run_scn_behaviour_change(conn: sqlite3.Connection, as_of_date: str, company_id: str) -> Tuple[int, int]:
     log.info("Running SCN_BEHAVIOUR_CHANGE as_of=%s company_id=%s", as_of_date, company_id)
     rows = conn.execute("""
@@ -1644,7 +1643,7 @@ def run_scn_behaviour_change(conn: sqlite3.Connection, as_of_date: str, company_
     return raised, suppressed
 
 
-# ── Scenario 5: SCN_PEP_EXPOSURE ──────────────────────────────────────────────
+# Scenario 5: SCN_PEP_EXPOSURE
 def run_scn_pep_exposure(conn: sqlite3.Connection, as_of_date: str, company_id: str) -> Tuple[int, int]:
     log.info("Running SCN_PEP_EXPOSURE as_of=%s company_id=%s", as_of_date, company_id)
     _sync_pep_flags_from_screening_db(conn, company_id)
@@ -1735,7 +1734,7 @@ def _sync_pep_flags_from_screening_db(conn: sqlite3.Connection, company_id: str)
     log.info("PEP flags synced from screening.db for %d customer profiles.", updated)
 
 
-# ── Scenarios 6a/6b/6c: Screening-match scenarios ─────────────────────────────
+# Scenarios 6a/6b/6c: Screening-match scenarios
 # These three replace the old standalone "screening list" reference page.
 # In a real bank, a screening hit is never just a passive entry on a chart —
 # it's a rule-based scenario like any other, and it goes into the same
@@ -1749,7 +1748,7 @@ def _normalize_name(name: str) -> str:
     return re.sub(r"[^A-Z0-9 ]", "", name.upper()).strip()
 
 
-# ── Item 1: Fuzzy / phonetic name matching ────────────────────────────────
+# Item 1: Fuzzy / phonetic name matching
 # Exact-string screening misses the single most common real-world evasion:
 # a sanctioned or watchlisted individual whose name is transliterated
 # slightly differently than the list entry — "Mohammed" vs "Mohamed" vs
@@ -2132,7 +2131,7 @@ def run_scn_internal_watchlist_match(conn: sqlite3.Connection, as_of_date: str, 
     return raised, suppressed
 
 
-# ── Item 2: Pre-Transaction Wire Interdiction ─────────────────────────────
+# Item 2: Pre-Transaction Wire Interdiction
 # Every screening scenario above (SCN_SANCTION_MATCH, SCN_PEP_MATCH,
 # SCN_INTERNAL_WATCHLIST) is DETECTION — it finds matches among
 # transactions that have already posted, during the next batch engine run.
@@ -2323,7 +2322,7 @@ def seed_sanctions_list(conn: sqlite3.Connection) -> int:
     return 0
 
 
-# ── Scenario 7: SCN_DORMANT_REACTIVATION ──────────────────────────────────────
+# Scenario 7: SCN_DORMANT_REACTIVATION
 def run_scn_dormant_reactivation(conn: sqlite3.Connection, as_of_date: str, company_id: str) -> Tuple[int, int]:
     log.info("Running SCN_DORMANT_REACTIVATION as_of=%s company_id=%s", as_of_date, company_id)
 
@@ -2447,7 +2446,7 @@ def run_scn_dormant_reactivation(conn: sqlite3.Connection, as_of_date: str, comp
     return raised, suppressed
 
 
-# ── Scenario 8: SCN_RAPID_LAYERING ────────────────────────────────────────────
+# Scenario 8: SCN_RAPID_LAYERING
 def run_scn_rapid_layering(conn: sqlite3.Connection, as_of_date: str, company_id: str) -> Tuple[int, int]:
     log.info("Running SCN_RAPID_LAYERING as_of=%s company_id=%s", as_of_date, company_id)
     rows = conn.execute("""
@@ -2498,7 +2497,7 @@ def run_scn_rapid_layering(conn: sqlite3.Connection, as_of_date: str, company_id
     return raised, suppressed
 
 
-# ── Scenario 9: SCN_MULTI_ACCOUNT_STRUCTURING ─────────────────────────────────
+# Scenario 9: SCN_MULTI_ACCOUNT_STRUCTURING
 def run_scn_multi_account_structuring(conn: sqlite3.Connection, as_of_date: str, company_id: str) -> Tuple[int, int]:
     log.info("Running SCN_MULTI_ACCOUNT_STRUCTURING as_of=%s company_id=%s", as_of_date, company_id)
     # Cash-channel only, same reasoning as SCN_STRUCTURING_CASH — smurfing
@@ -2558,7 +2557,7 @@ def run_scn_multi_account_structuring(conn: sqlite3.Connection, as_of_date: str,
     return raised, suppressed
 
 
-# ── Scenario 10: SCN_CROSS_BORDER_ANOMALY ─────────────────────────────────────
+# Scenario 10: SCN_CROSS_BORDER_ANOMALY
 def run_scn_cross_border_anomaly(conn: sqlite3.Connection, as_of_date: str, company_id: str) -> Tuple[int, int]:
     log.info("Running SCN_CROSS_BORDER_ANOMALY as_of=%s company_id=%s", as_of_date, company_id)
     rows = conn.execute("""
@@ -2586,7 +2585,7 @@ def run_scn_cross_border_anomaly(conn: sqlite3.Connection, as_of_date: str, comp
     return raised, suppressed
 
 
-# ── Item 3: Dynamic Customer Risk Re-Rating ───────────────────────────────
+# Item 3: Dynamic Customer Risk Re-Rating
 # Real banks recalculate a customer's risk rating periodically and after
 # material events — they don't leave it frozen at whatever was assigned on
 # day one. A customer who picks up three alerts and a SAR over six months
@@ -2701,7 +2700,7 @@ def recalculate_customer_risk_ratings(conn: sqlite3.Connection, company_id: str)
     return changed
 
 
-# ── Item 5: Mandatory Currency Transaction Reports (CTR) ──────────────────
+# Item 5: Mandatory Currency Transaction Reports (CTR)
 # A SAR is a judgment call — "I, a human, suspect this is criminal." A CTR
 # is not: it is a fixed, non-discretionary obligation to report any cash
 # transaction (or same-day aggregate) above a statutory threshold,
