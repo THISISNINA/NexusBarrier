@@ -1,6 +1,5 @@
 """
 kyc_risk.py — Initial Customer Risk Rating (static KYC-attribute scoring)
---------------------------------------------------------------------------
 Deterministic onboarding-time risk rating computed from WHO the customer is
 on file (customer_type, PEP flag, EDD flag, nationality / country of
 residence) — no transaction behaviour at all. This is deliberately a
@@ -39,8 +38,8 @@ dict always produces the same output dict.
 MAX_RISK_SCORE = 15
 BASELINE_SCORE = 1  # every customer starts at 1 — the scale is 1..15, not 0..15
 
-# ── Jurisdiction risk sets (ISO-3166 alpha-2, matching transactions.country
-# and aml_engine.HIGH_RISK_JURISDICTIONS conventions) ──────────────────────
+# Jurisdiction risk sets (ISO-3166 alpha-2, matching transactions.country
+# and aml_engine.HIGH_RISK_JURISDICTIONS conventions)
 #
 # FATF "call for action" black list — highest weight.
 FATF_CALL_FOR_ACTION = {"KP", "IR", "MM"}
@@ -61,7 +60,7 @@ FATF_INCREASED_MONITORING = {
 # keeping them here is a permitted exceed-the-floor calibration choice.
 OFFSHORE_SECRECY_CENTRES = {"KY", "PA", "MT", "VG", "MC", "LI", "SC", "BS"}
 
-# ── Factor weights (points on the 1–15 scale) ─────────────────────────────
+# Factor weights (points on the 1–15 scale)
 WEIGHT_COMPLEX_ENTITY = 3        # CORPORATE customer_type — layered ownership
 WEIGHT_CORRESPONDENT = 2         # CORRESPONDENT account_category (Art. 28)
 WEIGHT_PEP = 5                   # heaviest single factor (Art. 15 / FATF R.12)
@@ -70,7 +69,7 @@ WEIGHT_JURISDICTION_BLACK = 4    # FATF call-for-action exposure
 WEIGHT_JURISDICTION_GREY = 2     # FATF increased-monitoring exposure
 WEIGHT_JURISDICTION_OFFSHORE = 2 # offshore/secrecy-centre exposure
 
-# ── Tier thresholds ────────────────────────────────────────────────────────
+# Tier thresholds
 TIER_HIGH_MIN = 10
 TIER_MEDIUM_MIN = 5
 

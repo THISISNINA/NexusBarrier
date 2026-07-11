@@ -1,6 +1,5 @@
 """
 aml_risk.py — Weighted Risk Scoring Engine
--------------------------------------------
 Read-only scoring layer that sits alongside the rule-based scenarios in
 aml_engine.py. It does NOT replace the threshold rules — FATF-aligned
 monitoring still needs deterministic, auditable triggers ("this account
@@ -45,7 +44,7 @@ from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from typing import Optional
 
-# ── Weights (must sum to 1.0) ─────────────────────────────────────────────
+# Weights (must sum to 1.0)
 WEIGHT_VELOCITY      = 0.30
 WEIGHT_JURISDICTION   = 0.30
 WEIGHT_STRUCTURING    = 0.25
@@ -53,7 +52,7 @@ WEIGHT_SEGMENT        = 0.15
 
 assert abs((WEIGHT_VELOCITY + WEIGHT_JURISDICTION + WEIGHT_STRUCTURING + WEIGHT_SEGMENT) - 1.0) < 1e-9
 
-# ── Risk-tier threshold adjustment ─────────────────────────────────────────
+# Risk-tier threshold adjustment
 # Regulatory basis vs. institutional judgment — these are two different
 # things and it matters not to blur them:
 #
@@ -98,9 +97,9 @@ def get_threshold_multiplier(risk_rating: Optional[str], is_pep: bool) -> float:
         multiplier = min(multiplier, PEP_THRESHOLD_MULTIPLIER_CAP)
     return multiplier
 
-# ── Jurisdiction risk tiers (finer-grained than the binary HIGH_RISK set
+# Jurisdiction risk tiers (finer-grained than the binary HIGH_RISK set
 # aml_engine.py uses for trigger purposes — this is scoring input only,
-# it does NOT change which transactions trigger SCN_HIGH_RISK_JURISDICTION) ──
+# it does NOT change which transactions trigger SCN_HIGH_RISK_JURISDICTION)
 JURISDICTION_TIER_SCORES = {
     # FATF black list / DPRK-style sanctions-adjacent — maximum score
     "KP": 100, "IR": 100, "SY": 95, "CU": 90,
@@ -112,7 +111,7 @@ JURISDICTION_TIER_SCORES = {
 }
 DEFAULT_JURISDICTION_SCORE = 10  # NORMAL-list countries not otherwise scored
 
-# ── Segment baseline scores ───────────────────────────────────────────────
+# Segment baseline scores
 RISK_RATING_SCORE = {"HIGH": 80, "MEDIUM": 40, "LOW": 15}
 PEP_SCORE_BONUS = 20
 CUSTOMER_TYPE_SCORE = {"HIGH_RISK": 70, "BUSINESS": 35, "INDIVIDUAL": 20, "RETAIL": 20}
@@ -349,7 +348,7 @@ def persist_risk_score(conn: sqlite3.Connection, breakdown: RiskScoreBreakdown, 
     ))
 
 
-# ── Feedback-loop hook (read-only summary, not an auto-tuner) ────────────
+# Feedback-loop hook (read-only summary, not an auto-tuner)
 def scoring_accuracy_summary(conn: sqlite3.Connection, company_id: str) -> dict:
     """Compares the composite_score recorded at alert-creation time against
     the eventual closure outcome, as a first step toward threshold tuning.

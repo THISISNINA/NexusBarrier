@@ -1,6 +1,5 @@
 """
 generator.py — Synthetic Data Generator
-----------------------------------------
 Owns THREE things, per the spec's execution order (item 3 must land before
 everything else that depends on customer identity):
 
@@ -100,7 +99,7 @@ _EMPLOYERS = ["Emirates Group", "DP World", "Etisalat", "ADNOC Distribution", "M
 
 _CLEAN_WIRE_POOL: list | None = None
 
-# ── Expanded KYC identity fields (inputs to kyc_risk scoring) ─────────────
+# Expanded KYC identity fields (inputs to kyc_risk scoring)
 # Deterministic by account index, like the jurisdiction_flag cadence below —
 # a demo reset must reproduce byte-identical profiles.
 #

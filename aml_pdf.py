@@ -1,6 +1,5 @@
 """
 aml_pdf.py — SLA Report PDF Export
-------------------------------------
 Renders the same data aml_reports.build_sla_report() produces as a
 formatted PDF, for the "Export PDF" button on /reports. Deliberately
 takes the report dict as input rather than a db connection — this module
@@ -64,7 +63,7 @@ def render_sla_report_pdf(report: dict) -> bytes:
 
     story = []
 
-    # ── Header ──────────────────────────────────────────────────────────
+    # Header
     story.append(Paragraph("AML Monitoring — SLA &amp; Compliance Report", title_style))
     generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     story.append(Paragraph(
@@ -73,7 +72,7 @@ def render_sla_report_pdf(report: dict) -> bytes:
     ))
     story.append(HRFlowable(width="100%", thickness=0.75, color=colors.HexColor("#cccccc")))
 
-    # ── Alert volume summary ───────────────────────────────────────────
+    # Alert volume summary
     summary = report.get("summary") or {}
     story.append(Paragraph("Alert Volume Summary", section_style))
     summary_rows = [
@@ -89,7 +88,7 @@ def render_sla_report_pdf(report: dict) -> bytes:
     summary_table.setStyle(_table_style(header_rows=1, bold_last_row=True))
     story.append(summary_table)
 
-    # ── SLA timing metrics ──────────────────────────────────────────────
+    # SLA timing metrics
     story.append(Paragraph("SLA Timing", section_style))
     timing_rows = [
         ["Metric", "Value"],
@@ -106,7 +105,7 @@ def render_sla_report_pdf(report: dict) -> bytes:
         note_style,
     ))
 
-    # ── Disposition rates ────────────────────────────────────────────────
+    # Disposition rates
     story.append(Paragraph("Disposition Rates (of closed alerts)", section_style))
     rate_rows = [
         ["Metric", "Value"],
@@ -117,7 +116,7 @@ def render_sla_report_pdf(report: dict) -> bytes:
     rate_table.setStyle(_table_style(header_rows=1))
     story.append(rate_table)
 
-    # ── Alerts by scenario ───────────────────────────────────────────────
+    # Alerts by scenario
     story.append(Paragraph("Alerts by Scenario", section_style))
     by_scenario = report.get("alerts_by_scenario") or []
     if by_scenario:
@@ -147,7 +146,7 @@ def render_sla_report_pdf(report: dict) -> bytes:
     else:
         story.append(Paragraph("No alerts have been raised yet.", styles["Normal"]))
 
-    # ── Oldest open alert ────────────────────────────────────────────────
+    # Oldest open alert
     story.append(Paragraph("Oldest Still-Open Alert", section_style))
     oldest = report.get("oldest_open_alert")
     if oldest:

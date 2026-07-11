@@ -67,7 +67,7 @@ LEGACY_COMPANY_ID = "legacy-demo"
 
 PLATFORM_ACCESS_TOKEN_EXPIRY_MINUTES = 30
 
-# ── Platform Super Admin — a genuinely separate identity, not a role value ──
+# Platform Super Admin — a genuinely separate identity, not a role value
 # "Zero access to compliance data" is a structural claim, not a policy one —
 # it has to be true even if some future route handler gets sloppy. Two
 # things make it true here:
@@ -163,7 +163,7 @@ def record_platform_attempt(conn, username: str, success: bool, ip_address: Opti
     conn.commit()
 
 
-# ── Base identity tables (every other table's company_id points here) ──
+# Base identity tables (every other table's company_id points here)
 # companies.status: ACTIVE / SUSPENDED — Super Admin's tenant-licensing
 # control. A suspended company blocks login and signup for every one of
 # its users regardless of their own individual status.
@@ -240,7 +240,7 @@ def _apply_auth_schema_migrations(conn) -> None:
     conn.commit()
 
 
-# ── Schema additions (on top of the users/companies tables above) ──
+# Schema additions (on top of the users/companies tables above)
 AUTH_SECURITY_SCHEMA = """
 CREATE TABLE IF NOT EXISTS login_attempts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -286,7 +286,7 @@ def ensure_auth_schema(conn) -> None:
     conn.commit()
 
 
-# ── Workspace provisioning (Super Admin only) ───────────────────────────
+# Workspace provisioning (Super Admin only)
 # These two are the ONLY write paths that create a company or a
 # TENANT_ADMIN. Public signup can do neither: it requires an existing
 # company_id and always produces an unapproved L1_ANALYST (see app.py's
@@ -350,7 +350,7 @@ def set_company_status(conn, company_id: str, status: str) -> None:
     conn.commit()
 
 
-# ── Brute-force lockout ─────────────────────────────────────────────────
+# Brute-force lockout
 
 def is_locked_out(conn, company_id: str, username: str) -> bool:
     """Checked BEFORE the password is verified — a locked-out account
@@ -380,7 +380,7 @@ def record_attempt(conn, company_id: str, username: str, success: bool, ip_addre
     conn.commit()
 
 
-# ── Signup rate limiting ────────────────────────────────────────────────
+# Signup rate limiting
 # Separate from login lockout, and keyed differently: login lockout keys
 # on (company_id, username) because that identity already exists and
 # only failures count (a legitimate user logging in successfully many
@@ -410,7 +410,7 @@ def record_signup_attempt(conn, ip_address: str) -> None:
     conn.commit()
 
 
-# ── CSRF ─────────────────────────────────────────────────────────────────
+# CSRF
 
 def get_csrf_token() -> str:
     """One token per session, generated on first use. Templates render
@@ -441,7 +441,7 @@ def require_csrf(f):
     return wrapper
 
 
-# ── JWT issuance, delivered via secure cookie ───────────────────────────
+# JWT issuance, delivered via secure cookie
 
 def _hash_refresh_token(raw_token: str) -> str:
     """SHA-256, not werkzeug's slow password hash. A refresh token is
@@ -584,7 +584,7 @@ def set_auth_cookies(response, tokens: Dict[str, str]):
 # adding real security, just breaking the auto-refresh flow.
 
 
-# ── Platform Super Admin tokens ──────────────────────────────────────────
+# Platform Super Admin tokens
 # Deliberately simpler than the tenant token pair above: no refresh token,
 # no rotation. Platform-admin usage is infrequent (provisioning a new
 # tenant, suspending one) — re-logging in every 30 minutes is a non-issue,
@@ -646,7 +646,7 @@ def require_platform_admin(f):
     return wrapper
 
 
-# ── Route protection ────────────────────────────────────────────────────
+# Route protection
 
 def _current_standing(user_id: str) -> Optional[Dict[str, Any]]:
     """Live is_approved/status/company-status lookup, run on every
@@ -726,7 +726,7 @@ def require_role(*allowed_roles):
     return decorator
 
 
-# ── Structural tenant isolation ─────────────────────────────────────────
+# Structural tenant isolation
 
 class TenantScopedDB:
     """
@@ -757,7 +757,7 @@ class TenantScopedDB:
             (self._company_id, alert_id),
         ).fetchone()
 
-    # ── Team management (Tenant Admin surface) ──────────────────────────
+    # Team management (Tenant Admin surface)
     # Same structural guarantee as the alert methods above: user_id alone
     # is never enough to touch a row — every statement also filters on
     # self._company_id, so a Tenant Admin who guesses/enumerates another
@@ -850,7 +850,6 @@ class TenantScopedDB:
         ).fetchone()[0]
 
 
-# ─────────────────────────────────────────────────────────────────────────
 # Route integration sketch (not runnable as-is — shows how the pieces
 # above compose in app.py):
 #
@@ -909,4 +908,3 @@ class TenantScopedDB:
 # def alerts():
 #     db = TenantScopedDB(get_db_conn(), g.user["company_id"])
 #     return render_template("alerts.html", alerts=db.get_alerts())
-# ─────────────────────────────────────────────────────────────────────────

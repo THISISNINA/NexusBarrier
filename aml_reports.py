@@ -1,6 +1,5 @@
 """
 aml_reports.py — SLA & Reporting Layer
-------------------------------------------
 Read-only aggregate queries over aml_alerts / str_decisions for the
 /reports dashboard. No workflow logic, no writes — this module only ever
 runs SELECT statements.
