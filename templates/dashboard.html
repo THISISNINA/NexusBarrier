@@ -1,75 +1,35 @@
-{% extends "base.html" %} {% block title %}Dashboard{% endblock %}
-{% block extra_css %}
-<link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}" />
-{% endblock %}
-{% block content %}
+{% extends "base.html" %} {% block title %}Dashboard{% endblock %} {% block
+extra_css %}
+<link
+  rel="stylesheet"
+  href="{{ url_for('static', filename='dashboard.css') }}"
+/>
+{% endblock %} {% block content %}
 <div class="page-header">
   <h1>Dashboard</h1>
   <p class="subtle">
-    System-wide snapshot &mdash; status counts across every alert, and what's
-    waited longest for attention.
+    {% if current_role == 'MLRO' %}MLRO view — escalated alerts awaiting
+    sign-off, plus system-wide status. {% else %}Analyst view — your open queue,
+    plus system-wide status.{% endif %}
   </p>
 </div>
 
-<div class="dashboard-grid">
-  <a href="{{ url_for('alert_queue') }}" class="dashboard-tile tile-open">
-    <span class="tile-count">{{ summary.summary.open_count or 0 }}</span>
-    <span class="tile-label">Open</span>
-  </a>
-  <a
-    href="{{ url_for('alert_queue_my_reviews') }}"
-    class="dashboard-tile tile-under-review"
-  >
-    <span class="tile-count"
-      >{{ summary.summary.under_review_count or 0 }}</span
-    >
-    <span class="tile-label">Under Review</span>
-  </a>
-  <a
-    href="{{ url_for('alert_queue_escalated') if current_role == 'MLRO' else url_for('alert_queue') }}"
-    class="dashboard-tile tile-escalated"
-  >
-    <span class="tile-count">{{ summary.summary.escalated_count or 0 }}</span>
-    <span class="tile-label">Escalated</span>
-  </a>
-  <a
-    href="{{ url_for('alert_queue_all') }}"
-    class="dashboard-tile tile-closed-sar"
-  >
-    <span class="tile-count">{{ summary.summary.closed_sar_count or 0 }}</span>
-    <span class="tile-label">Closed (SAR)</span>
-  </a>
-  <a
-    href="{{ url_for('alert_queue_all') }}"
-    class="dashboard-tile tile-closed-no-action"
-  >
-    <span class="tile-count"
-      >{{ summary.summary.closed_no_action_count or 0 }}</span
-    >
-    <span class="tile-label">Closed (No Action)</span>
-  </a>
-  <a href="{{ url_for('alert_queue_all') }}" class="dashboard-tile tile-total">
-    <span class="tile-count">{{ summary.summary.total or 0 }}</span>
-    <span class="tile-label">Total Alerts</span>
-  </a>
-</div>
-
-<section class="panel" style="margin-top: 24px">
-  <h2>Oldest still open</h2>
+<div class="dash-section">
   {% if summary.oldest_open_alert %} {% set oa = summary.oldest_open_alert %}
-  <div class="oldest-open-card">
+  <div class="attention-card">
     <div>
       <span class="badge status-{{ oa.status|lower }}">{{ oa.status }}</span>
       <span class="badge severity-{{ oa.severity|lower }}"
         >{{ oa.severity }}</span
       >
-      <span class="mono" style="margin-left: 8px">{{ oa.scenario_code }}</span>
+      <span class="mono" style="margin-left: 6px">{{ oa.scenario_code }}</span>
+      <div class="attention-meta">
+        Oldest still-open alert — account
+        <span class="mono">{{ oa.account_id }}</span>, created {{
+        oa.created_at[:19].replace('T', ' ') }}
+        <span class="age-badge" data-created="{{ oa.created_at }}"></span>
+      </div>
     </div>
-    <p class="subtle" style="margin: 8px 0">
-      Account <span class="mono">{{ oa.account_id }}</span> &mdash; created {{
-      oa.created_at[:19].replace('T', ' ') }}
-      <span class="age-badge" data-created="{{ oa.created_at }}"></span>
-    </p>
     <a
       class="btn btn-primary btn-sm"
       href="{{ url_for('alert_detail', alert_id=oa.alert_id) }}"
@@ -77,36 +37,170 @@
     >
   </div>
   {% else %}
-  <p class="subtle">Nothing waiting &mdash; every alert is closed.</p>
+  <div class="attention-card is-empty">
+    <span class="subtle">Nothing waiting — every alert is closed.</span>
+  </div>
   {% endif %}
-</section>
+</div>
 
+<div class="dash-section">
+  <div class="dash-section-title">Alert Volume</div>
+  <div class="kpi-row">
+    <a href="{{ url_for('alert_queue') }}" class="kpi-card kpi-open">
+      <span class="kpi-count">{{ summary.summary.open_count or 0 }}</span>
+      <span class="kpi-label">Open</span>
+    </a>
+    <a
+      href="{{ url_for('alert_queue_my_reviews') }}"
+      class="kpi-card kpi-review"
+    >
+      <span class="kpi-count"
+        >{{ summary.summary.under_review_count or 0 }}</span
+      >
+      <span class="kpi-label">Under Review</span>
+    </a>
+    <a
+      href="{{ url_for('alert_queue_escalated') if current_role == 'MLRO' else url_for('alert_queue') }}"
+      class="kpi-card kpi-escalated"
+    >
+      <span class="kpi-count">{{ summary.summary.escalated_count or 0 }}</span>
+      <span class="kpi-label">Escalated</span>
+    </a>
+    <a href="{{ url_for('alert_queue_all') }}" class="kpi-card kpi-secondary">
+      <span class="kpi-count"
+        >{{ (summary.summary.closed_sar_count or 0) +
+        (summary.summary.closed_no_action_count or 0) }}</span
+      >
+      <span class="kpi-label">Closed</span>
+    </a>
+    <a href="{{ url_for('alert_queue_all') }}" class="kpi-card kpi-secondary">
+      <span class="kpi-count">{{ summary.summary.total or 0 }}</span>
+      <span class="kpi-label">Total</span>
+    </a>
+    <a href="{{ url_for('ctr_filings') }}" class="kpi-card kpi-secondary">
+      <span class="kpi-count">{{ ctr_count or 0 }}</span>
+      <span class="kpi-label">CTR Filings</span>
+    </a>
+  </div>
+</div>
 
+<div class="dash-section">
+  <details class="admin-details">
+    <summary>Performance metrics &amp; admin utilities</summary>
+    <div class="panel" style="margin-top: 10px">
+      <h2>Time in Review</h2>
+      {% if time_in_review and time_in_review.avg_hours_by_status %}
+      <div class="stat-grid">
+        {% for status, hours in time_in_review.avg_hours_by_status.items() %}
+        <div class="stat-card">
+          <div class="stat-value">{{ "%.1f"|format(hours) }}h</div>
+          <div class="stat-label">Avg. — {{ status|replace('_',' ') }}</div>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p class="subtle">No view-history data yet.</p>
+      {% endif %}
+      <p class="field-hint" style="margin-top: 10px">
+        <a href="{{ url_for('rule_performance') }}"
+          >View false-positive rate per scenario &rarr;</a
+        >
+      </p>
+
+      {% if current_role in ('MLRO', 'TENANT_ADMIN') %}
+      <h2 style="margin-top: 20px">Data Pipeline</h2>
+      <p class="subtle" style="margin-bottom: 10px">
+        Runs generator.py → aml_loader.py → aml_engine.py in sequence, for
+        your workspace only. MLRO / Tenant Admin only.
+      </p>
+      {% if last_engine_run %}
+      <p class="subtle" style="margin-bottom: 10px">
+        Last run:
+        {% if last_engine_run.status == 'COMPLETED' and not
+        last_engine_run.errored_records_count %}
+        <span class="badge status-closed_no_action">COMPLETED</span>
+        {% else %}
+        <span class="badge status-escalated">{{ last_engine_run.status }}</span>
+        {% endif %}
+        <span class="mono">{{ last_engine_run.run_at[:19].replace('T', ' ') }}</span>
+        &middot; {{ last_engine_run.alerts_generated or 0 }} raised
+        {% if last_engine_run.errored_records_count %}
+        &middot;
+        <strong style="color: var(--danger, #c0392b)"
+          >{{ last_engine_run.errored_records_count }} record(s) errored &amp;
+          skipped — incomplete pass</strong
+        >
+        {% endif %}
+      </p>
+      {% endif %}
+      <div
+        style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center"
+      >
+        <form
+          action="{{ url_for('run_pipeline') }}"
+          method="POST"
+          style="margin: 0"
+        >
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+          <button
+            type="submit"
+            class="btn btn-primary btn-sm"
+            {%
+            if
+            pipeline_running
+            or
+            pipeline_cooldown_remaining
+          >
+            0 %}disabled{% endif %}> Generate &amp; Process Data
+          </button>
+        </form>
+        {% if pipeline_running %}<span class="subtle">Running now…</span> {%
+        elif pipeline_cooldown_remaining > 0 %}<span class="subtle"
+          >Available again in {{ pipeline_cooldown_remaining }}s.</span
+        >{% endif %}
+
+        <form
+          action="{{ url_for('reset_demo') }}"
+          method="POST"
+          style="margin: 0"
+          onsubmit="
+            return confirm(
+              'This wipes all alerts, customers, transactions, and cases for your workspace. Continue?',
+            );
+          "
+        >
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+          <button
+            type="submit"
+            class="btn btn-secondary btn-sm"
+            {%
+            if
+            reset_cooldown_remaining
+          >
+            0 %}disabled{% endif %}> Reset Demo Data
+          </button>
+        </form>
+        {% if reset_cooldown_remaining > 0 %}<span class="subtle"
+          >Available again in {{ reset_cooldown_remaining }}s.</span
+        >{% endif %}
+      </div>
+      {% endif %}
+    </div>
+  </details>
+</div>
 
 <script>
-  // Computes and color-codes elapsed time client-side from the raw
-  // created_at timestamp, so the badge is always accurate to the moment
-  // the page is viewed rather than baked in at render time.
   document.querySelectorAll(".age-badge[data-created]").forEach((el) => {
     const created = new Date(el.dataset.created);
-    const now = new Date();
-    const ms = now - created;
-    const hours = ms / (1000 * 60 * 60);
+    const hours = (new Date() - created) / (1000 * 60 * 60);
     const days = Math.floor(hours / 24);
     const remHours = Math.floor(hours % 24);
     el.textContent =
       days > 0 ? `${days}d ${remHours}h ago` : `${remHours}h ago`;
     el.title = created.toLocaleString();
-    if (hours >= 72) {
-      el.style.background = "rgba(248, 81, 73, 0.25)";
-      el.style.color = "#ff7b72";
-    } else if (hours >= 24) {
-      el.style.background = "rgba(210, 153, 34, 0.25)";
-      el.style.color = "#e3b341";
-    } else {
-      el.style.background = "rgba(63, 185, 80, 0.2)";
-      el.style.color = "#56d364";
-    }
+    el.classList.add(
+      hours >= 72 ? "age-red" : hours >= 24 ? "age-amber" : "age-green",
+    );
   });
 </script>
 {% endblock %}
