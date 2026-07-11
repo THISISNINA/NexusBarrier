@@ -1,0 +1,66 @@
+{% extends "base.html" %}{% block title %}Wire Screening Log{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Wire Screening Log</h1>
+  <p class="subtle">
+    All correspondent-banking wires submitted through the live screening form,
+    with their pre-release screening outcome. Historical batch-loaded transactions
+    are not shown here — they carry CLEARED by default and never went through
+    live pre-release screening.
+  </p>
+  <a href="{{ url_for('wire_submit_form') }}" class="btn btn-primary btn-sm">Submit New Wire</a>
+</div>
+
+{% if not entries %}
+<div class="empty-state">
+  No live wire submissions yet. Use the
+  <a href="{{ url_for('wire_submit_form') }}">Wire Screening</a> page to submit one.
+</div>
+{% else %}
+<section class="panel">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Status</th>
+        <th>Account</th>
+        <th>Amount</th>
+        <th>Country</th>
+        <th>Ordering Customer</th>
+        <th>Beneficiary</th>
+        <th>BIC</th>
+        <th>Screened At</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for e in entries %}
+      <tr>
+        <td>
+          {% if e.interdiction_status == 'BLOCKED' %}
+          <span class="badge badge-danger">BLOCKED</span>
+          {% else %}
+          <span class="badge severity-low">CLEARED</span>
+          {% endif %}
+        </td>
+        <td>
+          <div>{{ e.customer_name }}</div>
+          <div class="mono" style="font-size:12px;color:var(--text-secondary)">{{ e.account_id }}</div>
+        </td>
+        <td class="mono">{{ "%.2f"|format(e.amount) }}</td>
+        <td class="mono">{{ e.country }}</td>
+        <td>{{ e.ordering_customer_name or '—' }}</td>
+        <td>{{ e.beneficiary_name or '—' }}</td>
+        <td class="mono">{{ e.originating_bank_bic or '—' }}</td>
+        <td class="mono">{{ (e.interdicted_at or '')[:19].replace('T',' ') }}</td>
+        <td>
+          {% if e.alert_id %}
+          <a href="{{ url_for('alert_detail', alert_id=e.alert_id) }}" class="btn btn-secondary btn-sm">Alert</a>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+{% endblock %}

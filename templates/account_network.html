@@ -1,0 +1,154 @@
+{% extends "base.html" %}{% block title %}Network — {{ data.profile.account_id }}{% endblock %}
+{% block content %}
+<div class="page-header">
+  <a href="{{ url_for('customers') }}" class="back-link">&larr; Back to customers</a>
+  <h1>Network Analysis &mdash; {{ data.profile.customer_name }}</h1>
+  <span class="badge category-badge">{{ data.profile.account_category }}</span>
+  <span class="badge risk-{{ data.profile.risk_rating|lower }}">{{ data.profile.risk_rating }}</span>
+  {% if data.profile.edd_required %}<span class="badge badge-danger">EDD</span>{% endif %}
+  <p class="subtle" style="margin-top: 8px">
+    Account <span class="mono">{{ data.profile.account_id }}</span>
+    &mdash; {{ data.links|length }} linked account(s) found across
+    {{ data.alerts|length }} alert(s) and {{ data.ctrs|length }} CTR filing(s).
+  </p>
+</div>
+
+{% if data.shared_alert_accounts %}
+<div class="panel" style="border-left: 3px solid var(--color-high)">
+  <h2>Smurfing Co-Detection (strongest signal)</h2>
+  <p class="subtle">
+    These accounts were <strong>algorithmically co-detected</strong> alongside this
+    account in a multi-account structuring scenario — the engine already determined
+    they were acting in a coordinated way, not just sharing incidental characteristics.
+  </p>
+  <table class="data-table">
+    <thead><tr><th>Account ID</th><th>Customer Name</th><th>Alert</th></tr></thead>
+    <tbody>
+      {% for l in data.shared_alert_accounts %}
+      <tr>
+        <td class="mono">
+          <a href="{{ url_for('account_network', account_id=l.account_id) }}">{{ l.account_id }}</a>
+        </td>
+        <td>{{ l.customer_name }}</td>
+        <td class="mono">{{ l.link_value }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% if data.links %}
+<section class="panel">
+  <h2>All Network Links ({{ data.links|length }})</h2>
+  <p class="subtle">
+    Ordered by signal strength: smurfing co-detection first, then shared beneficial
+    owners, shared counterparties, shared high-risk corridors.
+  </p>
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Link Type</th>
+        <th>Account ID</th>
+        <th>Customer Name</th>
+        <th>Shared Value</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for l in data.links %}
+      <tr>
+        <td>
+          <span class="badge
+            {% if l.link_type == 'SMURFING_CO_DETECTION' %}badge-danger
+            {% elif l.link_type == 'SHARED_UBO' %}risk-high
+            {% elif l.link_type == 'SHARED_COUNTERPARTY' %}risk-medium
+            {% else %}{% endif %}
+          ">{{ l.link_type|replace('_',' ') }}</span>
+        </td>
+        <td class="mono">{{ l.account_id }}</td>
+        <td>{{ l.customer_name }}</td>
+        <td class="mono">{{ l.link_value }}</td>
+        <td>
+          <a href="{{ url_for('account_network', account_id=l.account_id) }}"
+             class="btn btn-secondary btn-sm">Network</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% else %}
+<div class="empty-state">No linked accounts found for this account.</div>
+{% endif %}
+
+<div style="display:grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 0">
+  <section class="panel" style="margin:0">
+    <h2>Alerts ({{ data.alerts|length }})</h2>
+    {% if not data.alerts %}
+    <p class="subtle">No alerts.</p>
+    {% else %}
+    <table class="data-table">
+      <thead><tr><th>Scenario</th><th>Severity</th><th>Status</th><th></th></tr></thead>
+      <tbody>
+        {% for a in data.alerts %}
+        <tr>
+          <td>
+            <div class="scenario-code">{{ a.scenario_code }}</div>
+            <div class="scenario-desc">{{ a.typology or '' }}</div>
+          </td>
+          <td><span class="badge severity-{{ a.severity|lower }}">{{ a.severity }}</span></td>
+          <td><span class="badge status-{{ a.status|lower }}">{{ a.status }}</span></td>
+          <td><a href="{{ url_for('alert_detail', alert_id=a.alert_id) }}" class="btn btn-secondary btn-sm">View</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+  </section>
+
+  <section class="panel" style="margin:0">
+    <h2>CTR Filings ({{ data.ctrs|length }})</h2>
+    {% if not data.ctrs %}
+    <p class="subtle">No mandatory currency transaction reports filed.</p>
+    {% else %}
+    <table class="data-table">
+      <thead><tr><th>Date</th><th>Total Amount</th><th>Transactions</th></tr></thead>
+      <tbody>
+        {% for c in data.ctrs %}
+        <tr>
+          <td class="mono">{{ c.filing_date }}</td>
+          <td class="mono">{{ "%.2f"|format(c.total_amount) }}</td>
+          <td class="mono">{{ c.transaction_count }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+  </section>
+</div>
+
+<section class="panel" style="margin-top: 16px">
+  <h2>Customer Profile</h2>
+  <dl class="kv-grid">
+    <dt>Account ID</dt><dd class="mono">{{ data.profile.account_id }}</dd>
+    <dt>Customer Name</dt><dd>{{ data.profile.customer_name }}</dd>
+    <dt>Category</dt><dd><span class="badge category-badge">{{ data.profile.account_category }}</span></dd>
+    <dt>Risk Rating</dt>
+    <dd>
+      <span class="badge risk-{{ data.profile.risk_rating|lower }}">{{ data.profile.risk_rating }}</span>
+      {% if data.profile.risk_rating_reason %}
+      <span class="field-hint">&mdash; {{ data.profile.risk_rating_reason }}</span>
+      {% endif %}
+    </dd>
+    {% if data.profile.ubo_names %}
+    <dt>Beneficial Owners</dt><dd>{{ data.profile.ubo_names|replace('|',', ') }}</dd>
+    {% endif %}
+    {% if data.profile.swift_bic %}
+    <dt>SWIFT BIC</dt><dd class="mono">{{ data.profile.swift_bic }}</dd>
+    {% endif %}
+    <dt>EDD Required</dt>
+    <dd>{% if data.profile.edd_required %}<span class="badge badge-danger">Yes</span>{% else %}No{% endif %}</dd>
+  </dl>
+</section>
+{% endblock %}

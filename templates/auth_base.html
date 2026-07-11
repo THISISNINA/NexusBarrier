@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>{% block title %}Sign In{% endblock %} · AML Monitoring</title>
+<meta
+  name="description"
+  content="Sign in to your NexusBarrier AML monitoring workspace, or request access to an existing workspace for review by your administrator."
+/>
+<link rel="stylesheet" href="{{ url_for('static', filename='base.css') }}" />
+{% block extra_css %}{% endblock %}
+<script>
+  (function () {
+    var saved = localStorage.getItem("nb-theme");
+    if (saved === "dark") {
+      document.documentElement.setAttribute("data-theme", "dark");
+    }
+  })();
+</script>
+</head>
+<body>
+<main class="page auth-shell">
+{% with messages = get_flashed_messages(with_categories=true) %}
+{% if messages %}
+<div class="flash-stack">
+{% for category, message in messages %}
+<div class="flash flash-{{ category }}">{{ message }}</div>
+{% endfor %}
+</div>
+{% endif %}
+{% endwith %}
+{% block content %}{% endblock %}
+</main>
+{% block extra_js %}{% endblock %}
+</body>
+</html>

@@ -22,6 +22,10 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 
+# Generated transaction data — PII-bearing schema, regenerable via the pipeline
+data/processed/
+*.csv
+
 # SQLite databases (local data — regenerable via the pipeline)
 data/database/
 *.db

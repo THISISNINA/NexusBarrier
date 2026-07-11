@@ -93,6 +93,22 @@ Alert Queue {% endif %} {% endif %} {% endblock %} {% block extra_css %}
       <option value="CLOSED_NO_ACTION">Closed (No Action)</option>
     </select>
   </div>
+  <div class="filter-field">
+    <label for="f-typology">Typology</label>
+    <select id="f-typology" onchange="filterAlerts()">
+      <option value="">All</option>
+      <option value="CASH_INTENSIVE">Cash Intensive</option>
+      <option value="STRUCTURING">Structuring</option>
+      <option value="HIGH_RISK_JURISDICTION">High-Risk Jurisdiction</option>
+      <option value="UNUSUAL_BEHAVIOUR">Unusual Behaviour</option>
+      <option value="PEP_EXPOSURE">PEP Exposure</option>
+      <option value="SANCTIONS_MATCH">Sanctions Match</option>
+      <option value="DORMANT_REACTIVATION">Dormant Reactivation</option>
+      <option value="LAYERING">Layering</option>
+      <option value="SMURFING">Smurfing</option>
+      <option value="TRADE_BASED_ML">Trade-Based ML</option>
+    </select>
+  </div>
   <button
     type="button"
     class="btn btn-secondary btn-sm filter-reset"
@@ -101,27 +117,11 @@ Alert Queue {% endif %} {% endif %} {% endblock %} {% block extra_css %}
     Reset
   </button>
 
-  <div
-    class="counter-badge"
-    style="
-      margin-left: auto;
-      background: #24292e;
-      color: #fff;
-      padding: 6px 14px;
-      border-radius: 20px;
-      font-weight: bold;
-      font-size: 13px;
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
-      align-self: flex-end;
-    "
-  >
+  <div class="counter-badge">
     <span>Alerts:</span>
-    <span id="live-filter-count" style="color: #63e6be">0</span>
-    <span style="opacity: 0.5">/</span>
-    <span id="total-workspace-count" style="opacity: 0.8">0</span>
+    <span id="live-filter-count" class="counter-highlight">0</span>
+    <span class="counter-sep">/</span>
+    <span id="total-workspace-count" class="counter-total">0</span>
   </div>
 </div>
 
@@ -139,9 +139,9 @@ Alert Queue {% endif %} {% endif %} {% endblock %} {% block extra_css %}
     type="submit"
     form="bulk-action-form"
     class="btn btn-secondary btn-sm"
-    onclick="return setBulkAction('escalate');"
+    onclick="return setBulkAction('false_positive');"
   >
-    Bulk Escalate
+    Bulk Close as False Positive
   </button>
   <button
     type="button"
@@ -154,16 +154,19 @@ Alert Queue {% endif %} {% endif %} {% endblock %} {% block extra_css %}
 
 <div class="bulk-narrative-bar" id="bulk-narrative-bar" style="display: none">
   <label for="bulk-narrative-text">
-    Escalation narrative
+    False-positive closure narrative
     <span class="required">*</span>
     <span class="field-hint">
-      Applied to every selected alert's audit trail. Minimum 15 characters.
+      This narrative will be applied to every selected alert's audit trail.
+      Minimum 15 characters. Escalation and SAR filing are NOT available as bulk
+      actions — those require individual per-alert review and must be done one
+      at a time from the alert detail page.
     </span>
   </label>
   <textarea
     id="bulk-narrative-text"
     rows="3"
-    placeholder="Explain why these alerts are being escalated..."
+    placeholder="Explain why these alerts are being closed as false positives..."
     oninput="document.getElementById('bulk-narrative-input').value = this.value"
   ></textarea>
 </div>
@@ -178,6 +181,7 @@ Alert Queue {% endif %} {% endif %} {% endblock %} {% block extra_css %}
   when a bulk button is clicked, without any nesting.
 -->
 <form id="bulk-action-form" method="POST" action="{{ url_for('bulk_action') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
   <input type="hidden" name="action" id="bulk-action-input" value="" />
   <input type="hidden" name="narrative" id="bulk-narrative-input" value="" />
 </form>
@@ -195,6 +199,7 @@ Alert Queue {% endif %} {% endif %} {% endblock %} {% block extra_css %}
       </th>
       <th data-sort="alert_id">Alert ID</th>
       <th data-sort="scenario_code">Scenario</th>
+      <th>Typology</th>
       <th data-sort="severity">Severity</th>
       <th data-sort="account_id">Account</th>
       <th data-sort="trigger_value" data-sort-type="number">Trigger Value</th>
@@ -212,6 +217,7 @@ Alert Queue {% endif %} {% endif %} {% endblock %} {% block extra_css %}
       data-trigger="{{ alert['trigger_value'] }}"
       data-created="{{ alert['created_at'] }}"
       data-status="{{ alert['status']|upper }}"
+      data-typology="{{ alert['typology']|upper if alert['typology'] else '' }}"
     >
       <td>
         {% if alert['status'] in ('OPEN', 'UNDER_REVIEW', 'ESCALATED') %}
@@ -237,6 +243,11 @@ Alert Queue {% endif %} {% endif %} {% endblock %} {% block extra_css %}
         {% endif %}
       </td>
       <td>
+        {% if alert['typology'] %}<span class="badge typology-badge"
+          >{{ alert['typology']|replace('_',' ') }}</span
+        >{% else %}—{% endif %}
+      </td>
+      <td>
         <span class="badge severity-{{ alert['severity']|lower }}"
           >{{ alert['severity'] }}</span
         >
@@ -247,7 +258,11 @@ Alert Queue {% endif %} {% endif %} {% endblock %} {% block extra_css %}
         {{ alert['created_at'][:19].replace('T', ' ') }} {% if alert['status']
         in ('OPEN', 'UNDER_REVIEW', 'ESCALATED') %}
         <span class="age-badge" data-created="{{ alert['created_at'] }}"></span>
-        {% endif %}
+        {% endif %} {% if alert['sla_breached'] %}<span
+          class="badge badge-danger"
+          title="SLA due {{ alert['sla_due_date'] }}"
+          >⏰ SLA BREACHED</span
+        >{% endif %}
       </td>
       <td class="status-cell-data">
         <span class="badge status-{{ alert['status']|lower }}"
@@ -267,6 +282,7 @@ Alert Queue {% endif %} {% endif %} {% endblock %} {% block extra_css %}
             action="{{ url_for('claim_alert', alert_id=alert['alert_id']) }}"
             class="inline-form"
           >
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
             <button type="submit" class="btn btn-primary btn-sm">Claim</button>
           </form>
           {% endif %}
@@ -295,6 +311,7 @@ Alert Queue {% endif %} {% endif %} {% endblock %} {% block extra_css %}
       document.getElementById("f-trigger-min").value,
     );
     const status = document.getElementById("f-status").value;
+    const typology = document.getElementById("f-typology").value;
 
     const rows = document.querySelectorAll("#alerts-table tbody tr");
     let visible = 0;
@@ -305,7 +322,8 @@ Alert Queue {% endif %} {% endif %} {% endblock %} {% block extra_css %}
         (!severity || row.dataset.severity === severity) &&
         (!account || row.dataset.account.includes(account)) &&
         (isNaN(triggerMin) || parseFloat(row.dataset.trigger) >= triggerMin) &&
-        (!status || row.dataset.status === status);
+        (!status || row.dataset.status === status) &&
+        (!typology || row.dataset.typology === typology);
 
       row.style.display = matches ? "" : "none";
       if (matches) visible++;
@@ -324,6 +342,7 @@ Alert Queue {% endif %} {% endif %} {% endblock %} {% block extra_css %}
     document.getElementById("f-severity").value = "";
     document.getElementById("f-account").value = "";
     document.getElementById("f-trigger-min").value = "";
+    document.getElementById("f-typology").value = "";
 
     // Restore whichever <option selected> the server rendered for this
     // page/role combo, rather than re-deriving the role/page logic here
@@ -433,27 +452,28 @@ Alert Queue {% endif %} {% endif %} {% endblock %} {% block extra_css %}
       return false;
     }
 
-    // Escalate is the only bulk action that now requires a shared
+    // false_positive is the only bulk action that requires a shared
     // narrative — Claim still doesn't need one, since claiming isn't a
-    // decision that needs justifying the way escalating one (or many)
-    // alerts to the MLRO does.
-    if (action === "escalate") {
+    // decision that needs justifying the way a closure does.
+    if (action === "false_positive") {
       const narrative = document
         .getElementById("bulk-narrative-text")
         .value.trim();
       if (narrative.length < 15) {
         alert(
-          "Enter an escalation narrative (at least 15 characters) before bulk escalating.",
+          "Enter a closure narrative (at least 15 characters) before bulk-closing as false positive.",
         );
         return false;
       }
       document.getElementById("bulk-narrative-input").value = narrative;
+      document.getElementById("bulk-action-input").value = action;
+      return confirm(
+        `This narrative will be applied to all ${checked.length} selected alerts as a FALSE_POSITIVE closure. Proceed?`,
+      );
     }
 
     document.getElementById("bulk-action-input").value = action;
-    return confirm(
-      `${action === "claim" ? "Claim" : "Escalate"} ${checked.length} selected alert(s)?`,
-    );
+    return confirm(`Claim ${checked.length} selected alert(s)?`);
   }
 
   // --- Aging badges: same color thresholds as the Dashboard's oldest-open card ---

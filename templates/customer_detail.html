@@ -1,0 +1,181 @@
+{% extends "base.html" %} {% block title %}Customer {{ customer['account_id']
+}}{% endblock %} {% block content %}
+<div class="page-header">
+  <a href="{{ url_for('customers') }}" class="back-link"
+    >&larr; Back to customers</a
+  >
+  <h1>{{ customer['customer_name'] }}</h1>
+  <span class="badge category-badge">{{ customer['account_category'] }}</span>
+  <span class="badge risk-{{ customer['risk_rating']|lower }}"
+    >CRR: {{ customer['risk_rating'] }}</span
+  >
+  {% if customer['is_pep'] %}<span class="badge risk-high">PEP</span>{% endif %}
+  {% if customer.get('edd_required') %}<span class="badge badge-danger"
+    >EDD REQUIRED</span
+  >{% endif %}
+</div>
+
+{% if customer.get('watchlist_entry') %}
+<div
+  class="flash flash-error"
+  style="border-left: 4px solid var(--red); margin-bottom: 16px"
+>
+  <strong>⚠ INTERNAL WATCHLIST:</strong>
+  {{ customer.watchlist_entry.watch_reason|replace('_',' ') }} &mdash; {{
+  customer.watchlist_entry.notes or 'No additional notes.' }}
+</div>
+{% endif %} {% if customer.get('edd_required') %}
+<div
+  class="flash flash-error"
+  style="border-left: 4px solid var(--amber); margin-bottom: 16px"
+>
+  <strong>EDD REQUIRED:</strong> {{ customer.get('edd_reason') or 'Enhanced due
+  diligence on record for this customer.' }}
+</div>
+{% endif %}
+
+<section class="panel">
+  <h2>Customer Profile</h2>
+  <dl class="kv-grid">
+    <dt>Account ID</dt>
+    <dd class="mono">{{ customer['account_id'] }}</dd>
+    <dt>Customer Name</dt>
+    <dd>{{ customer['customer_name'] }}</dd>
+    <dt>Customer Type</dt>
+    <dd>
+      {{ customer['customer_type'] | default('—', true) | replace('_', ' ') |
+      title }}
+    </dd>
+    <dt>Account Category</dt>
+    <dd>
+      <span class="badge category-badge"
+        >{{ customer['account_category'] }}</span
+      >
+    </dd>
+    <dt>Date of Birth</dt>
+    <dd class="mono">{{ customer.get('date_of_birth') | default('—', true) }}</dd>
+    <dt>Nationality</dt>
+    <dd class="mono">{{ customer.get('nationality') | default('—', true) }}</dd>
+    <dt>Country of Residence</dt>
+    <dd class="mono">
+      {{ customer.get('country_of_residence') | default('—', true) }}
+    </dd>
+    <dt>Risk Rating (CRR)</dt>
+    <dd>
+      <span class="badge risk-{{ customer['risk_rating']|lower }}"
+        >{{ customer['risk_rating'] }}</span
+      >
+      {% if customer['risk_rating_reason'] %}<span class="field-hint"
+        >&mdash; {{ customer['risk_rating_reason'] }}</span
+      >{% endif %}
+    </dd>
+    <dt>Last Review</dt>
+    <dd class="mono">{{ customer['risk_rating_date'] or '—' }}</dd>
+    {% if customer['ubo_names'] %}
+    <dt>Beneficial Owners (UBO)</dt>
+    <dd>{{ customer['ubo_names']|replace('|', ', ') }}</dd>
+    {% endif %} {% if customer['swift_bic'] %}
+    <dt>SWIFT BIC</dt>
+    <dd class="mono">{{ customer['swift_bic'] }}</dd>
+    {% endif %}
+    <dt>PEP Status</dt>
+    <dd>
+      {% if customer['is_pep'] %}<span class="badge risk-high">PEP</span>{% else
+      %}<span class="badge badge-ok">Clear</span>{% endif %}
+    </dd>
+    <dt>EDD Status</dt>
+    <dd>
+      {% if customer.get('edd_required') %}<span class="badge badge-danger"
+        >EDD REQUIRED</span
+      >{% else %}<span class="badge badge-ok">Not Required</span>{% endif %}
+    </dd>
+    <dt>Expected Monthly Volume</dt>
+    <dd class="mono">
+      {{ "%.2f"|format(customer['expected_monthly_volume']) }}
+    </dd>
+  </dl>
+
+  {% set ir = customer.get('initial_risk') %} {% if ir %}
+  <div class="risk-matrix risk-matrix-{{ ir.tier|lower }}">
+    <div class="risk-matrix-header">
+      <h3>Initial Customer Risk Matrix</h3>
+      <span class="irr-badge irr-{{ ir.tier|lower }}">{{ ir.tier }}</span>
+      <span class="irr-score mono"
+        >Score: {{ ir.score }} / {{ ir.max_score }} at onboarding</span
+      >
+      {% if customer['risk_rating'] != ir.tier %}
+      <span class="irr-arrow">&rarr;</span>
+      <span class="badge risk-{{ customer['risk_rating']|lower }}"
+        >{{ customer['risk_rating'] }} today</span
+      >
+      {% endif %}
+    </div>
+    <p class="risk-matrix-reasons">
+      Scoring basis: {{ ir.factors }}
+    </p>
+    <p class="field-hint" style="margin-top: 8px">
+      Baseline risk from identity attributes alone, fixed at onboarding. The
+      Risk Rating (CRR) above is the customer's <em>current</em> rating — it
+      starts from this baseline and is escalated by alert, SAR, and
+      screening-hit history; when the two differ, the CRR's reason explains
+      why.
+    </p>
+  </div>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <h2>Alert History</h2>
+  {% if not account_alerts %}
+  <p class="subtle">No alerts have been raised on this account.</p>
+  {% else %}
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Alert ID</th>
+        <th>Scenario</th>
+        <th>Typology</th>
+        <th>Severity</th>
+        <th>Status</th>
+        <th>Trigger Value</th>
+        <th>Created</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for a in account_alerts %}
+      <tr>
+        <td class="mono">
+          <a href="{{ url_for('alert_detail', alert_id=a['alert_id']) }}"
+            >{{ a['alert_id'][:8] }}&hellip;</a
+          >
+        </td>
+        <td>
+          <div class="scenario-code">{{ a['scenario_code'] }}</div>
+          {% if a['scenario_description'] %}
+          <div class="scenario-desc">{{ a['scenario_description'] }}</div>
+          {% endif %}
+        </td>
+        <td>
+          {% if a['typology'] %}<span class="badge typology-badge"
+            >{{ a['typology']|replace('_',' ') }}</span
+          >{% else %}—{% endif %}
+        </td>
+        <td>
+          <span class="badge severity-{{ a['severity']|lower }}"
+            >{{ a['severity'] }}</span
+          >
+        </td>
+        <td>
+          <span class="badge status-{{ a['status']|lower }}"
+            >{{ a['status'] }}</span
+          >
+        </td>
+        <td class="mono">{{ "%.2f"|format(a['trigger_value']) }}</td>
+        <td class="mono">{{ a['created_at'][:19].replace('T', ' ') }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+{% endblock %}

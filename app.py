@@ -401,6 +401,36 @@ def platform_provision():
     return redirect(url_for("platform_dashboard"))
 
 
+@app.route("/platform/company/<company_id>/users")
+@auth_security.require_platform_admin
+def platform_company_users(company_id):
+    """Read-only drill-down into a tenant's roster. Deliberately shows only
+    IDENTITY metadata (username, name, role, lifecycle status) — never a
+    password_hash, and never any analytical/compliance table. The platform
+    console can see WHO is in a workspace for support/oversight, but it
+    still can't read that workspace's alerts, transactions, or decisions,
+    and it has no write action here (governance stays with the Tenant
+    Admin — see /admin/team)."""
+    conn = AMLService._connect()
+    try:
+        company = conn.execute(
+            "SELECT company_id, display_name, contact_email, status FROM companies WHERE company_id = ?",
+            (company_id,),
+        ).fetchone()
+        if company is None:
+            flash("No such workspace.", "error")
+            return redirect(url_for("platform_dashboard"))
+        users = conn.execute(
+            """SELECT username, full_name, nickname, role, status, is_approved,
+                      requested_role, approved_by, created_at
+               FROM users WHERE company_id = ? ORDER BY created_at ASC""",
+            (company_id,),
+        ).fetchall()
+    finally:
+        conn.close()
+    return render_template("platform_company_users.html", company=company, users=users)
+
+
 @app.route("/platform/company/<company_id>/status", methods=["POST"])
 @auth_security.require_platform_admin
 @auth_security.require_csrf

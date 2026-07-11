@@ -68,7 +68,7 @@ def render_sla_report_pdf(report: dict) -> bytes:
     story.append(Paragraph("AML Monitoring — SLA &amp; Compliance Report", title_style))
     generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     story.append(Paragraph(
-        f"Generated {generated_at} &middot; Local air-gapped AML monitoring system. No data leaves this machine.",
+        f"Generated {generated_at}",
         subtitle_style,
     ))
     story.append(HRFlowable(width="100%", thickness=0.75, color=colors.HexColor("#cccccc")))
@@ -158,6 +158,7 @@ def render_sla_report_pdf(report: dict) -> bytes:
             ["Account", oldest.get("account_id", "")],
             ["Status", oldest.get("status", "")],
             ["Created", (oldest.get("created_at") or "")[:19].replace("T", " ")],
+            ["Case Reference", (oldest.get("case_id") or "—")],
         ]
         oldest_table = Table(oldest_rows, colWidths=[1.3 * inch, 4.2 * inch])
         oldest_table.setStyle(_table_style(header_rows=0, label_col=True))

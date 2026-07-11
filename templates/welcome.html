@@ -1,207 +1,296 @@
-{% extends "base.html" %} {% block title %}Welcome{% endblock %}
-{% block extra_css %}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>NexusBarrier · AML Transaction Monitoring &amp; SAR Workflow</title>
+<meta
+  name="description"
+  content="NexusBarrier is an AML transaction-monitoring platform that screens payment streams for structuring, sanctions and PEP exposure, and rapid fund movement, then routes every alert through a documented, role-aware analyst-to-MLRO review and SAR-filing workflow."
+/>
+<meta name="keywords" content="AML monitoring, transaction monitoring, sanctions screening, SAR filing, MLRO workflow, financial crime compliance, PEP screening" />
+<!-- Open Graph: how the public landing page previews when shared. -->
+<meta property="og:type" content="website" />
+<meta property="og:title" content="NexusBarrier · AML Transaction Monitoring" />
+<meta
+  property="og:description"
+  content="Continuous AML transaction monitoring with a documented, role-aware alert-to-SAR review workflow."
+/>
+<link rel="stylesheet" href="{{ url_for('static', filename='base.css') }}" />
 <link rel="stylesheet" href="{{ url_for('static', filename='welcome.css') }}" />
-{% endblock %}
-{% block content %}
-<div class="page-header">
-  <h1>Welcome to NexusBarrier AML Monitoring</h1>
-  <p class="subtle">
-    A quick overview before you get started &mdash; what this system watches
-    for, how an alert moves through review, and what each role is responsible
-    for.
-  </p>
-</div>
+<script>
+  (function () {
+    var saved = localStorage.getItem("nb-theme");
+    if (saved === "dark") {
+      document.documentElement.setAttribute("data-theme", "dark");
+    }
+  })();
+</script>
+</head>
+<body class="lp-body">
 
-<section class="panel">
-  <h2>What this system does</h2>
-  <p>
-    NexusBarrier continuously screens transaction activity against
-    <strong>10 detection scenarios</strong> &mdash; pattern-based rules covering
-    structuring, high-risk jurisdictions, PEP exposure, sanctions screening,
-    dormant-account reactivation, rapid fund movement, and more. When activity
-    matches a scenario's threshold, an <strong>alert</strong>
-    is raised automatically and enters the review queue below.
-  </p>
-  <p class="field-hint">
-    This is a local, air-gapped instance &mdash; no data leaves this machine,
-    and the sanctions list / scenario thresholds are illustrative, not a live
-    regulatory feed. See the scenario reference at the bottom of this page for
-    exact trigger logic.
-  </p>
-</section>
-
-<section class="panel">
-  <h2>How an alert moves through the system</h2>
-  <div class="workflow-strip">
-    <div class="workflow-step">
-      <span class="badge status-open">OPEN</span>
-      <p>Alert raised automatically. Sitting in the queue, unclaimed.</p>
-    </div>
-    <div class="workflow-arrow">&rarr;</div>
-    <div class="workflow-step">
-      <span class="badge status-under_review">UNDER_REVIEW</span>
-      <p>An analyst (or MLRO) claims it and begins investigating.</p>
-    </div>
-    <div class="workflow-arrow">&rarr;</div>
-    <div class="workflow-step">
-      <span class="badge status-escalated">ESCALATED</span>
-      <p>
-        Analyst escalates for second-line sign-off, <em>or</em> closes it
-        directly if no escalation is needed.
-      </p>
-    </div>
-    <div class="workflow-arrow">&rarr;</div>
-    <div class="workflow-step">
-      <span class="badge status-closed_sar">CLOSED_SAR</span>
-      <span class="badge status-closed_no_action">CLOSED_NO_ACTION</span>
-      <p>
-        Terminal state. A SAR was filed (with a goAML reference), or the alert
-        was closed with no action &mdash; either way, a documented narrative is
-        required.
-      </p>
+<!-- Public topbar: auth entry points only, never internal app navigation. -->
+<header class="topbar lp-topbar">
+  <div class="topbar-inner">
+    <span class="brand">NexusBarrier</span>
+    <div class="nav-right">
+      <button type="button" class="theme-toggle-btn" onclick="toggleNbTheme()" title="Toggle light/dark theme" aria-label="Toggle light/dark theme">
+        <svg class="icon-sun" viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"></path></svg>
+        <svg class="icon-moon" viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3a7 7 0 0 0 9.79 9.79z"></path></svg>
+      </button>
+      <a href="{{ url_for('login') }}" class="btn">Sign In</a>
+      <a href="{{ url_for('signup') }}" class="btn btn-primary">Request Access</a>
     </div>
   </div>
-  <p class="field-hint" style="margin-top: 14px">
-    An MLRO can also send an <strong>ESCALATED</strong> alert back to
-    <strong>UNDER_REVIEW</strong> if it needs more investigation before sign-off
-    &mdash; the flow isn't strictly one-directional.
-  </p>
-</section>
+</header>
 
-<section class="panel">
-  {% if current_role == 'MLRO' %}
-  <h2>Your role: MLRO (second-line review)</h2>
-  <p>
-    As MLRO, you provide second-line oversight on alerts an analyst has already
-    investigated and escalated. Your queues:
-  </p>
-  <ul class="role-list">
-    <li>
-      <strong>Dashboard</strong> &mdash; system-wide status counts and the
-      oldest alert still awaiting action.
-    </li>
-    <li>
-      <strong>All Alerts</strong> &mdash; every alert in the system, any status.
-    </li>
-    <li>
-      <strong>Open Queue (All)</strong> &mdash; OPEN and ESCALATED alerts
-      together, so you're never blind to what's still moving through the analyst
-      tier. You can claim a fresh OPEN alert yourself if needed.
-    </li>
-    <li>
-      <strong>Escalated Queue</strong> &mdash; the full inbox of everything
-      awaiting sign-off, from any analyst.
-    </li>
-    <li>
-      <strong>My Reviews</strong> &mdash; alerts you've personally opened,
-      whether you claimed them yourself or they were escalated to you.
-    </li>
-  </ul>
-  <p>
-    From an alert's detail page you can <strong>close</strong> it (SAR or
-    no-action, with a required narrative),
-    <strong>return it to the analyst</strong> for more work (with a required
-    note), or <strong>create or link a case</strong> to group related alerts on
-    the same account.
-  </p>
-  {% else %}
-  <h2>Your role: L1 Analyst (first-line review)</h2>
-  <p>
-    As an analyst, you're the first line of investigation &mdash; triaging newly
-    raised alerts, documenting findings, and deciding whether to close an alert
-    directly or escalate it for MLRO sign-off. Your queues:
-  </p>
-  <ul class="role-list">
-    <li>
-      <strong>Dashboard</strong> &mdash; system-wide status counts and the
-      oldest alert still awaiting action.
-    </li>
-    <li>
-      <strong>All Alerts</strong> &mdash; every alert in the system, any status.
-    </li>
-    <li>
-      <strong>Open Queue</strong> &mdash; unclaimed OPEN alerts awaiting
-      investigation.
-    </li>
-    <li>
-      <strong>My Reviews</strong> &mdash; alerts currently assigned to you
-      (UNDER_REVIEW).
-    </li>
-  </ul>
-  <p>
-    From an alert's detail page you can <strong>claim</strong> it,
-    <strong>close</strong> it (SAR or no-action, with a required narrative),
-    <strong>escalate</strong> it to the MLRO, or
-    <strong>create or link a case</strong> to group related alerts on the same
-    account.
-  </p>
+<main class="lp-main">
+  {% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+  <div class="flash-stack lp-flash">
+    {% for category, message in messages %}
+    <div class="flash flash-{{ category }}">{{ message }}</div>
+    {% endfor %}
+  </div>
   {% endif %}
-</section>
+  {% endwith %}
 
-<section class="panel">
-  <details class="scenario-reference">
-    <summary>
-      <h2 style="display: inline">
-        Full scenario reference ({{ scenarios|length }} active)
-      </h2>
-      <span class="field-hint" style="margin-left: 8px">click to expand</span>
-    </summary>
-    <table class="data-table" style="margin-top: 16px">
-      <thead>
-        <tr>
-          <th>Scenario</th>
-          <th>Description</th>
-          <th>Typology</th>
-          <th>Threshold</th>
-          <th>Window</th>
-          <th>Default Severity</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for s in scenarios %}
-        <tr>
-          <td class="mono">{{ s['scenario_code'] }}</td>
-          <td>{{ s['description'] }}</td>
-          <td>{{ s['typology'] }}</td>
-          <td class="mono">
-            {{ "%.2f"|format(s['threshold_value']) if s['threshold_value'] is
-            not none else '—' }}
-          </td>
-          <td class="mono">
-            {{ s['window_days'] ~ ' days' if s['window_days'] else '—' }}
-          </td>
-          <td>
-            <span class="badge severity-{{ s['default_severity']|lower }}"
-              >{{ s['default_severity'] }}</span
-            >
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    <p class="field-hint" style="margin-top: 12px">
-      Thresholds shown reflect the currently active rule version for each
-      scenario. If a threshold is changed, this list updates automatically
-      &mdash; the alert detail page for any individual alert always shows the
-      threshold version that was actually in effect when that specific alert
-      fired.
+  <section class="lp-hero">
+    <div class="lp-hero-copy">
+      <span class="lp-eyebrow">AML Transaction Monitoring</span>
+      <h1>
+        Catch suspicious money movement
+        <span class="lp-accent">before it becomes a filing deadline.</span>
+      </h1>
+      <p class="lp-sub">
+        NexusBarrier continuously screens transaction streams against
+        {% if scenario_count %}<strong>{{ scenario_count }} detection
+        scenarios</strong>{% else %}<strong>a full library of detection
+        scenarios</strong>{% endif %} covering structuring, sanctions
+        exposure, rapid fund movement, dormant-account reactivation, and
+        more. Every flag is routed through a documented, role-aware review
+        workflow.
+      </p>
+      <div class="lp-cta-row">
+        <a href="{{ url_for('signup') }}" class="btn btn-primary lp-btn-lg">Request access &rarr;</a>
+        <a href="{{ url_for('login') }}" class="btn lp-btn-lg">Sign in to your workspace</a>
+      </div>
+      <p class="field-hint">
+        Workspaces are provisioned by your platform administrator. Signup
+        joins an existing workspace and is reviewed by its admin before
+        activation.
+      </p>
+    </div>
+
+    <!-- Decorative CSS-only mockup of the triage queue. Placeholder data. -->
+    <div class="lp-hero-visual" aria-hidden="true">
+      <div class="lp-viz-panel">
+        <div class="lp-viz-header">
+          <span class="lp-viz-dot"></span> Alert queue preview
+        </div>
+        <div class="lp-viz-stream">
+          <span class="lp-viz-pulse p1"></span>
+          <span class="lp-viz-pulse p2"></span>
+          <span class="lp-viz-pulse p3"></span>
+          <span class="lp-viz-track"></span>
+        </div>
+        <div class="lp-viz-card c1">
+          <span class="badge severity-high">HIGH</span>
+          <div>
+            <div class="lp-viz-line w70"></div>
+            <div class="lp-viz-line w45"></div>
+          </div>
+          <span class="badge status-open">OPEN</span>
+        </div>
+        <div class="lp-viz-card c2">
+          <span class="badge severity-medium">MEDIUM</span>
+          <div>
+            <div class="lp-viz-line w60"></div>
+            <div class="lp-viz-line w35"></div>
+          </div>
+          <span class="badge status-under_review">UNDER_REVIEW</span>
+        </div>
+        <div class="lp-viz-card c3">
+          <span class="badge severity-high">HIGH</span>
+          <div>
+            <div class="lp-viz-line w65"></div>
+            <div class="lp-viz-line w40"></div>
+          </div>
+          <span class="badge status-escalated">ESCALATED</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="lp-section" id="how-it-works">
+    <h2 class="lp-section-title">How NexusBarrier works</h2>
+    <p class="lp-section-sub">
+      Three stages between a raw transaction and a defensible regulatory
+      decision.
     </p>
-  </details>
-</section>
+    <div class="lp-feature-grid">
+      <article class="lp-feature-card reveal">
+        <div class="lp-feature-icon">
+          <svg viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v13"></path><path d="m7 11 5 5 5-5"></path><path d="M4 21h16"></path></svg>
+        </div>
+        <span class="lp-step-chip">Step 1</span>
+        <h3>Automated data ingestion</h3>
+        <p>
+          Transactional data streams are ingested continuously and normalized
+          into your workspace's isolated ledger. Accounts, counterparties,
+          jurisdictions, and channels arrive ready to screen, with no manual
+          uploads or lookups.
+        </p>
+      </article>
+      <article class="lp-feature-card reveal">
+        <div class="lp-feature-icon">
+          <svg viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a4 4 0 0 1 4 4c2.5.5 4 2.5 4 5a5 5 0 0 1-3 4.6V17a4 4 0 0 1-4 4h-2a4 4 0 0 1-4-4v-1.4A5 5 0 0 1 4 11c0-2.5 1.5-4.5 4-5a4 4 0 0 1 4-4Z"></path><path d="M9 12h6M12 9v6"></path></svg>
+        </div>
+        <span class="lp-step-chip">Step 2</span>
+        <h3>Risk-scored alert generation</h3>
+        <p>
+          A weighted risk score, layered over pattern-based detection
+          scenarios, flags high-risk activity such as structuring, PEP and
+          sanctions exposure, and rapid movement. A severity-graded alert is
+          raised the moment a threshold is breached, tagged with the exact
+          rule version that fired it.
+        </p>
+      </article>
+      <article class="lp-feature-card reveal">
+        <div class="lp-feature-icon">
+          <svg viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+        </div>
+        <span class="lp-step-chip">Step 3</span>
+        <h3>Seamless team collaboration</h3>
+        <p>
+          Analysts triage and investigate. The MLRO signs off on escalations
+          and SAR decisions, and workspace admins govern access. Every
+          hand-off is audited, and every closure carries a documented
+          narrative.
+        </p>
+      </article>
+    </div>
+  </section>
 
-<form
-  method="POST"
-  action="{{ url_for('acknowledge_welcome') }}"
-  style="margin-top: 8px"
->
-  <button
-    type="submit"
-    class="btn btn-primary"
-    style="font-size: 15px; padding: 10px 22px"
-  >
-    Enter the system &rarr;
-  </button>
-</form>
+  <section class="lp-section" id="workflow">
+    <h2 class="lp-section-title">The life of an alert</h2>
+    <p class="lp-section-sub">
+      Every flag follows the same auditable path. Expand each stage to see
+      what happens there.
+    </p>
+    <div class="lp-accordion">
+      <div class="lp-acc-item is-open">
+        <button type="button" class="lp-acc-header" aria-expanded="true">
+          <span class="badge status-open">OPEN</span>
+          <span class="lp-acc-title">Alert raised automatically</span>
+          <span class="lp-acc-chevron">&#9662;</span>
+        </button>
+        <div class="lp-acc-panel">
+          <p>
+            A detection scenario's threshold is breached and an alert lands in
+            the open queue, unclaimed. It arrives complete with the
+            transaction context, severity grade, and the exact rule version
+            that fired it.
+          </p>
+        </div>
+      </div>
+      <div class="lp-acc-item">
+        <button type="button" class="lp-acc-header" aria-expanded="false">
+          <span class="badge status-under_review">UNDER_REVIEW</span>
+          <span class="lp-acc-title">An analyst claims and investigates</span>
+          <span class="lp-acc-chevron">&#9662;</span>
+        </button>
+        <div class="lp-acc-panel">
+          <p>
+            A first-line analyst claims the alert, reviews account history and
+            related activity, and documents findings. Simple items can be
+            closed directly, and anything needing compliance judgment moves
+            up.
+          </p>
+        </div>
+      </div>
+      <div class="lp-acc-item">
+        <button type="button" class="lp-acc-header" aria-expanded="false">
+          <span class="badge status-escalated">ESCALATED</span>
+          <span class="lp-acc-title">Second-line MLRO sign-off</span>
+          <span class="lp-acc-chevron">&#9662;</span>
+        </button>
+        <div class="lp-acc-panel">
+          <p>
+            The MLRO owns the escalated queue: confirm and close, or send the
+            alert back to the analyst with an audit comment for further
+            investigation. The flow is reviewable in both directions.
+          </p>
+        </div>
+      </div>
+      <div class="lp-acc-item">
+        <button type="button" class="lp-acc-header" aria-expanded="false">
+          <span class="badge status-closed_sar">CLOSED_SAR</span>
+          <span class="badge status-closed_no_action">CLOSED_NO_ACTION</span>
+          <span class="lp-acc-title">Documented terminal decision</span>
+          <span class="lp-acc-chevron">&#9662;</span>
+        </button>
+        <div class="lp-acc-panel">
+          <p>
+            Every closure, whether a SAR filing or no action, requires an
+            investigative narrative, and SAR paths demand a valid goAML
+            reference. Nothing terminates without a defensible paper trail.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
 
+  <section class="lp-section" id="teams">
+    <h2 class="lp-section-title">Built for the whole compliance team</h2>
+    <div class="lp-persona-grid">
+      <article class="lp-persona-card reveal">
+        <span class="lp-persona-chip">First line</span>
+        <h3>L1 Analyst</h3>
+        <p>
+          Works the open queue: claims alerts, investigates, closes simple
+          items with a narrative, and escalates the rest.
+        </p>
+      </article>
+      <article class="lp-persona-card reveal">
+        <span class="lp-persona-chip">Second line</span>
+        <h3>MLRO</h3>
+        <p>
+          Full oversight of every queue, final sign-off on escalations, SAR
+          decisions, and case-level review across related alerts.
+        </p>
+      </article>
+      <article class="lp-persona-card reveal">
+        <span class="lp-persona-chip">Workspace root</span>
+        <h3>Tenant Admin</h3>
+        <p>
+          Governs the workspace: approves access requests, assigns roles, and
+          removes access instantly across all active sessions.
+        </p>
+      </article>
+    </div>
+  </section>
 
-{% endblock %}
+  <section class="lp-section">
+    <div class="lp-cta-panel reveal">
+      <h2>Ready to work your queue?</h2>
+      <p>
+        Join your company's workspace in under a minute. Your administrator
+        approves the request and you're in.
+      </p>
+      <div class="lp-cta-row lp-cta-center">
+        <a href="{{ url_for('signup') }}" class="btn btn-primary lp-btn-lg">Request access &rarr;</a>
+        <a href="{{ url_for('login') }}" class="btn lp-btn-lg">Sign in</a>
+      </div>
+      <form method="POST" action="{{ url_for('acknowledge_welcome') }}" class="lp-skip-form">
+        <button type="submit" class="btn-link">
+          Already signed in on this device? Enter the console &rarr;
+        </button>
+      </form>
+    </div>
+  </section>
+</main>
+
+<script src="{{ url_for('static', filename='welcome.js') }}"></script>
+</body>
+</html>

@@ -1,0 +1,165 @@
+{% extends "auth_base.html" %} {% block title %}Request Access{% endblock %} {%
+block content %}
+<div class="panel">
+  <h2>Request Access</h2>
+  <form
+    method="POST"
+    action="{{ url_for('signup') }}"
+    autocomplete="off"
+    id="signup-form"
+  >
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+    <div class="form-group">
+      <label for="company_id"
+        >Company ID / Workspace Name <span class="required">*</span></label
+      >
+      <input
+        type="text"
+        id="company_id"
+        name="company_id"
+        placeholder="e.g. acme-bank"
+        autocapitalize="off"
+        autocomplete="off"
+        required
+      />
+      <span class="field-hint">
+        The exact workspace ID your company's administrator gave you.
+        Workspaces can't be created from this form, and your account stays
+        pending until that workspace's admin approves it.
+      </span>
+    </div>
+
+    <div class="form-group">
+      <label for="full_name">Full Name <span class="required">*</span></label>
+      <input
+        type="text"
+        id="full_name"
+        name="full_name"
+        placeholder="e.g. Fatima Al-Mansoori"
+        autocomplete="name"
+        maxlength="120"
+        required
+      />
+      <span class="field-hint">
+        Your legal/official name, used on audit trails, investigation
+        narratives, and compliance documentation logs.
+      </span>
+    </div>
+
+    <div class="form-group">
+      <label for="nickname">Nickname / Preferred Name</label>
+      <input
+        type="text"
+        id="nickname"
+        name="nickname"
+        placeholder="e.g. Fatima"
+        autocomplete="nickname"
+        maxlength="60"
+      />
+      <span class="field-hint">
+        The friendly name shown casually across the UI, like header greetings
+        and "reviewing by" chips. Leave blank to use your first name.
+      </span>
+    </div>
+
+    <div class="form-group">
+      <label for="username">Username <span class="required">*</span></label>
+      <input
+        type="text"
+        id="username"
+        name="username"
+        autocapitalize="off"
+        autocomplete="username"
+        required
+      />
+    </div>
+
+    <div class="form-group">
+      <label for="password">Password <span class="required">*</span></label>
+      <input
+        type="password"
+        id="password"
+        name="password"
+        autocomplete="new-password"
+        minlength="12"
+        required
+      />
+      <div class="password-strength">
+        <div class="password-strength-fill" id="strength-fill"></div>
+      </div>
+      <span class="field-hint" id="strength-hint">
+        At least 12 characters, mixing upper/lowercase, a number, and a symbol.
+        This is a client-side hint only. The server enforces the real rule
+        regardless of what this page shows.
+      </span>
+    </div>
+
+    <div class="form-group">
+      <label for="password_confirm"
+        >Confirm Password <span class="required">*</span></label
+      >
+      <input
+        type="password"
+        id="password_confirm"
+        name="password_confirm"
+        autocomplete="new-password"
+        required
+      />
+    </div>
+
+    <div class="form-group">
+      <label id="role-toggle-label">Role Assignment</label>
+      <div
+        class="role-toggle"
+        role="radiogroup"
+        aria-labelledby="role-toggle-label"
+      >
+        <label class="role-toggle-option">
+          <input
+            type="radio"
+            name="requested_role"
+            value="L1_ANALYST"
+            checked
+          />
+          <span class="role-toggle-card">
+            <span class="role-toggle-title">Analyst</span>
+            <span class="role-toggle-desc"
+              >First-line review: triage, investigate, and close or escalate
+              alerts.</span
+            >
+          </span>
+        </label>
+        <label class="role-toggle-option">
+          <input type="radio" name="requested_role" value="MLRO" />
+          <span class="role-toggle-card">
+            <span class="role-toggle-title">MLRO</span>
+            <span class="role-toggle-desc"
+              >Second-line compliance lead: escalated queue sign-off and SAR
+              decisions.</span
+            >
+          </span>
+        </label>
+      </div>
+      <span class="field-hint">
+        Choose the role you're <strong>requesting</strong>. Your workspace
+        administrator sees this choice on your access request and grants it
+        when they approve you — roles are assigned by the admin, never
+        self-assigned here.
+      </span>
+    </div>
+
+    <div class="form-actions form-actions-stacked">
+      <button type="submit" class="btn btn-primary btn-block">
+        Create Account
+      </button>
+    </div>
+  </form>
+</div>
+
+<p class="auth-footnote subtle">
+  Already have an account? <a href="{{ url_for('login') }}">Sign in</a>
+</p>
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='signup.js') }}"></script>
+{% endblock %} {% endblock %}

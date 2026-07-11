@@ -1,0 +1,70 @@
+{% extends "base.html" %}{% block title %}Wire Result{% endblock %}
+{% block content %}
+<div class="page-header">
+  <a href="{{ url_for('wire_submit_form') }}" class="back-link">&larr; Submit another wire</a>
+  <h1>Wire Screening Result</h1>
+</div>
+
+{% if result.blocked %}
+<div class="panel" style="border-left: 3px solid var(--color-high); max-width: 700px">
+  <h2 style="color: var(--color-high)">Wire Blocked</h2>
+  <p class="subtle">
+    This wire was held before release. The transaction has been recorded with
+    status BLOCKED and an alert has been raised in the Open Queue for analyst review.
+  </p>
+  <dl class="kv-grid" style="margin-top: 14px">
+    <dt>Transaction ID</dt>
+    <dd class="mono">{{ result.transaction_id }}</dd>
+    <dt>Interdiction Status</dt>
+    <dd><span class="badge badge-danger">BLOCKED</span></dd>
+    <dt>Matched Field</dt>
+    <dd>{{ result.match.field }}</dd>
+    <dt>Submitted Name</dt>
+    <dd><strong>{{ result.match.name }}</strong></dd>
+    <dt>Matched Entry</dt>
+    <dd>{{ result.match.entity_name }}</dd>
+    <dt>List / Source</dt>
+    <dd class="mono">{{ result.match.source }}</dd>
+    <dt>Match Method</dt>
+    <dd>
+      <span class="badge {% if result.match.match_type == 'EXACT' %}risk-high{% else %}risk-medium{% endif %}">
+        {{ result.match.match_type }}
+      </span>
+      {% if result.match.match_type != 'EXACT' %}
+      <span class="field-hint">&mdash; similarity {{ "%.0f"|format(result.match.score * 100) }}% &mdash; verify the name carefully before acting</span>
+      {% endif %}
+    </dd>
+    <dt>Alert Raised</dt>
+    <dd>
+      {% if result.alert_id %}
+      <a href="{{ url_for('alert_detail', alert_id=result.alert_id) }}" class="btn btn-secondary btn-sm">
+        View Alert
+      </a>
+      {% else %}
+      <span class="subtle">Suppressed (duplicate)</span>
+      {% endif %}
+    </dd>
+  </dl>
+</div>
+
+{% else %}
+<div class="panel" style="border-left: 3px solid var(--color-low); max-width: 700px">
+  <h2 style="color: var(--color-low)">Wire Cleared</h2>
+  <p class="subtle">
+    All names on this wire cleared sanctions, PEP, and internal watchlist screening.
+    The transaction has been posted.
+  </p>
+  <dl class="kv-grid" style="margin-top: 14px">
+    <dt>Transaction ID</dt>
+    <dd class="mono">{{ result.transaction_id }}</dd>
+    <dt>Interdiction Status</dt>
+    <dd><span class="badge severity-low">CLEARED</span></dd>
+  </dl>
+</div>
+{% endif %}
+
+<div style="margin-top: 16px; display: flex; gap: 10px">
+  <a href="{{ url_for('wire_submit_form') }}" class="btn btn-primary">Submit Another Wire</a>
+  <a href="{{ url_for('wire_log') }}" class="btn btn-secondary">View Screening Log</a>
+</div>
+{% endblock %}

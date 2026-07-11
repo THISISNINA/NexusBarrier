@@ -1,45 +1,1118 @@
-/* --- MASTER WIDESCREEN & RESPONSIVE FLUID LAYOUT OVERRIDES --- */
+:root {
+  --bg: #f3f4f6;
+  --bg-panel: #ffffff;
+  --bg-raised: #f8f9fb;
+  --border: #e2e5ea;
+  --border-strong: #cbd2db;
+  --text: #1f2430;
+  --text-dim: #5b6573;
+  --text-mute: #8b96a5;
+
+  --accent: #2563eb;
+  --accent-rgb: 37, 99, 235;
+  --green: #15803d;
+  --amber: #b45309;
+  --red: #b91c1c;
+  --purple: #6d28d9;
+
+  --radius: 10px;
+  --shadow:
+    0 1px 2px rgba(16, 24, 40, 0.06), 0 6px 16px -8px rgba(16, 24, 40, 0.1);
+  font-size: 15px;
+
+  /* Badge-danger tint — used by SLA-breach / watchlist / EDD warnings */
+  --danger-bg: #fef2f2;
+  --danger-border: #fecaca;
+
+  /* Shared accent-tinted panel colors (bulk action bars, etc.) */
+  --tint-bg-strong: #eff6ff;
+  --tint-border-strong: #bfdbfe;
+  --tint-bg-soft: #f5f9ff;
+  --tint-border-soft: #dbeafe;
+
+  /* Fixed chip accent — intentionally constant across themes, see alerts.css .counter-badge */
+  --counter-highlight: #63e6be;
+
+  /* Aliases: several templates (wire_log, wire_result, account_network,
+     ctr_filings, regulatory_report) reference these names directly.
+     They were never defined anywhere, so those templates' colored
+     borders/text were silently failing. Mapping them to the real
+     tokens fixes those pages without touching their markup. */
+  --color-high: var(--red);
+  --color-low: var(--green);
+  --color-info: var(--accent);
+  --text-secondary: var(--text-dim);
+  --text-muted: var(--text-mute);
+  --border-muted: var(--border);
+}
+
+[data-theme="dark"] {
+  --bg: #0b0f14;
+  --bg-panel: #11161d;
+  --bg-raised: #161c25;
+  --border: #232b36;
+  --border-strong: #2d3540;
+  --text: #e6eaf0;
+  --text-dim: #8b96a5;
+  --text-mute: #5b6573;
+
+  --accent: #4f8cff;
+  --accent-rgb: 79, 140, 255;
+  --green: #35c98f;
+  --amber: #e8b73d;
+  --red: #ef5a5a;
+  --purple: #9b7ef0;
+
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px -8px rgba(0, 0, 0, 0.5);
+
+  --danger-bg: rgba(239, 90, 90, 0.14);
+  --danger-border: rgba(239, 90, 90, 0.32);
+
+  --tint-bg-strong: rgba(88, 166, 255, 0.1);
+  --tint-border-strong: rgba(88, 166, 255, 0.3);
+  --tint-bg-soft: rgba(88, 166, 255, 0.06);
+  --tint-border-soft: rgba(88, 166, 255, 0.2);
+}
+
+* {
+  box-sizing: border-box;
+}
+
 html,
 body {
   margin: 0;
-  padding: 0;
-  width: 100%;
-  overflow-x: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font-family:
+    "Inter",
+    "Segoe UI",
+    system-ui,
+    -apple-system,
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
 
-/* Expands the main layout wrap across 100% of widescreen monitors */
-.topbar,
-.page,
-.footer {
-  width: 100% !important;
-  max-width: 100% !important;
-  box-sizing: border-box;
+.mono {
+  font-family: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.92em;
+}
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
 }
 
-/* Adjusts internal margins so content breathes naturally on widescreen displays */
-.page {
-  max-width: 100% !important;
-  width: 100% !important;
-  padding-left: 32px !important;
-  padding-right: 32px !important;
-  box-sizing: border-box;
-  margin-top: 24px;
-  margin-bottom: 40px;
+/* ── Top bar ───────────────────────────────────────────────────── */
+.topbar {
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 20;
 }
-
 .topbar-inner {
-  max-width: 100% !important;
-  width: 100% !important;
-  padding-left: 32px !important;
-  padding-right: 32px !important;
-  box-sizing: border-box;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 12px 28px;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.brand {
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--text) !important;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: 6px;
+}
+.brand::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 0 3px rgba(21, 128, 61, 0.15);
+  display: inline-block;
+}
+.brand:hover {
+  text-decoration: none;
 }
 
-/* Quick-fix utility to prevent flash items from pushing layout grids out of square */
-.flash-stack {
+.nav-left {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+.nav-left a {
+  color: var(--text-dim);
+  font-size: 13.5px;
+  font-weight: 500;
+}
+.nav-left a:hover {
+  color: var(--text);
+  text-decoration: none;
+}
+
+.nav-more {
+  position: relative;
+}
+.nav-more > summary {
+  list-style: none;
+  cursor: pointer;
+  color: var(--text-dim);
+  font-size: 13.5px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.nav-more > summary::-webkit-details-marker {
+  display: none;
+}
+.nav-more > summary::after {
+  content: "▾";
+  font-size: 10px;
+}
+.nav-more[open] > summary::after {
+  content: "▴";
+}
+.nav-more-panel {
+  position: absolute;
+  top: 26px;
+  left: 0;
+  z-index: 30;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  padding: 6px;
+  min-width: 190px;
+  display: flex;
+  flex-direction: column;
+}
+.nav-more-panel a {
+  padding: 8px 10px;
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 13.5px;
+}
+.nav-more-panel a:hover {
+  background: var(--bg-raised);
+  text-decoration: none;
+}
+
+.nav-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.session-id {
+  color: var(--text-mute);
+  font-size: 12.5px;
+  font-family: "JetBrains Mono", monospace;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  padding: 4px 10px;
+  border-radius: 20px;
+}
+.role-badge {
+  text-transform: uppercase;
+  font-size: 10.5px;
+  letter-spacing: 0.4px;
+  color: var(--text-dim);
+}
+.btn-link {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-mute);
+  font-size: 12.5px;
+  font-family: inherit;
+  padding: 4px 8px;
+}
+.btn-link:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+.role-select {
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: 5px 8px;
+  background: var(--bg-panel);
+  color: var(--text);
+}
+
+/* ── Theme toggle ──────────────────────────────────────────────── */
+.theme-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-panel);
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 0;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
+}
+.theme-toggle-btn:hover {
+  background: var(--bg-raised);
+  color: var(--text);
+}
+.theme-toggle-btn svg {
+  width: 16px;
+  height: 16px;
+  stroke: currentColor;
+  fill: none;
+}
+.theme-toggle-btn .icon-moon {
+  display: none;
+}
+[data-theme="dark"] .theme-toggle-btn .icon-sun {
+  display: none;
+}
+[data-theme="dark"] .theme-toggle-btn .icon-moon {
+  display: inline-block;
+}
+
+/* ── Page shell ────────────────────────────────────────────────── */
+.page {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 32px 28px 80px;
+}
+.page-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 24px;
+}
+.page-header h1 {
+  font-size: 22px;
+  font-weight: 700;
+  margin: 0;
+}
+.page-header .subtle {
+  margin-top: 4px;
   width: 100%;
+}
+.back-link {
+  display: inline-block;
+  color: var(--text-dim);
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+.back-link:hover {
+  color: var(--accent);
+}
+.subtle {
+  color: var(--text-dim);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+.footer {
+  text-align: center;
+  color: var(--text-mute);
+  font-size: 12px;
+  padding: 24px 0 40px;
+}
+
+/* ── Flash messages ────────────────────────────────────────────── */
+.flash-stack {
   margin-bottom: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.flash {
+  padding: 11px 16px;
+  border-radius: 8px;
+  font-size: 13.5px;
+  border: 1px solid transparent;
+}
+.flash-success {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+  color: var(--green);
+}
+.flash-error {
+  background: var(--danger-bg);
+  border-color: var(--danger-border);
+  color: var(--red);
+}
+
+/* ── Panels ────────────────────────────────────────────────────── */
+.panel {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 22px 24px;
+  margin-bottom: 22px;
+  box-shadow: var(--shadow);
+}
+.auth-shell {
+  max-width: 420px;
+  padding-top: 64px;
+}
+.panel h2 {
+  font-size: 13.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-dim);
+  margin: 0 0 16px;
+}
+.panel h3 {
+  font-size: 14.5px;
+  margin: 0 0 14px;
+  color: var(--text);
+}
+
+/* ── Key/value grid ────────────────────────────────────────────── */
+.kv-grid {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  row-gap: 12px;
+  column-gap: 16px;
+  margin: 0;
+}
+.kv-grid dt {
+  color: var(--text-mute);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  padding-top: 2px;
+}
+.kv-grid dd {
+  margin: 0;
+  font-size: 14px;
+}
+
+.auto-narrative {
+  margin-top: 18px;
+  padding: 14px 16px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  font-size: 13.5px;
+  color: var(--text-dim);
+}
+.auto-narrative strong {
+  color: var(--text);
+  display: block;
+  margin-bottom: 4px;
+  font-size: 12px;
+  text-transform: uppercase;
+}
+.auto-narrative p {
+  margin: 0;
+  line-height: 1.6;
+}
+
+/* ── Tables ────────────────────────────────────────────────────── */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+/* Wide registers (e.g. the KYC customer register): scroll sideways inside
+   the panel instead of squashing columns until dates wrap mid-value and
+   the last column clips off the edge. */
+.table-scroll {
+  overflow-x: auto;
+}
+.table-scroll .data-table th,
+.table-scroll .data-table td {
+  white-space: nowrap;
+}
+.data-table thead th {
+  text-align: left;
+  color: var(--text-mute);
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  padding: 0 12px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.data-table tbody td {
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+.data-table tbody tr:last-child td {
+  border-bottom: none;
+}
+.data-table tbody tr:hover {
+  background: var(--bg-raised);
+}
+.scenario-code {
+  font-weight: 600;
+  font-size: 13px;
+}
+.scenario-desc {
+  color: var(--text-mute);
+  font-size: 12px;
+  margin-top: 2px;
+}
+.actions-cell,
+.actions-flex-box {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.inline-form {
+  display: inline-block;
+  margin: 0;
+}
+
+/* ── Badges ────────────────────────────────────────────────────── */
+.badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.badge-lg {
+  padding: 5px 14px;
+  font-size: 12px;
+}
+
+.status-open {
+  background: #eef2ff;
+  color: #4338ca;
+  border-color: #c7d2fe;
+}
+.status-under_review {
+  background: #fffbeb;
+  color: var(--amber);
+  border-color: #fde68a;
+}
+.status-escalated {
+  background: #fef2f2;
+  color: var(--red);
+  border-color: #fecaca;
+}
+.status-draft_sar {
+  background: #f5f3ff;
+  color: var(--purple);
+  border-color: #ddd6fe;
+}
+.status-closed_sar {
+  background: #f5f3ff;
+  color: var(--purple);
+  border-color: #ddd6fe;
+}
+.status-closed_no_action {
+  background: #f0fdf4;
+  color: var(--green);
+  border-color: #bbf7d0;
+}
+.status-closed {
+  background: #f0fdf4;
+  color: var(--green);
+  border-color: #bbf7d0;
+}
+
+.severity-low {
+  background: #f0fdf4;
+  color: var(--green);
+  border-color: #bbf7d0;
+}
+.severity-medium {
+  background: #fffbeb;
+  color: var(--amber);
+  border-color: #fde68a;
+}
+.severity-high {
+  background: #fef2f2;
+  color: var(--red);
+  border-color: #fecaca;
+}
+.severity-critical {
+  background: var(--red);
+  color: #fff;
+  border-color: var(--red);
+}
+
+.risk-low {
+  background: #f0fdf4;
+  color: var(--green);
+  border-color: #bbf7d0;
+}
+.risk-medium {
+  background: #fffbeb;
+  color: var(--amber);
+  border-color: #fde68a;
+}
+.risk-high {
+  background: #fef2f2;
+  color: var(--red);
+  border-color: #fecaca;
+}
+.risk-critical {
+  background: var(--red);
+  color: #fff;
+  border-color: var(--red);
+}
+
+.category-badge {
+  background: #eff6ff;
+  color: var(--accent);
+  border-color: #bfdbfe;
+}
+.typology-badge {
+  background: #f5f3ff;
+  color: var(--purple);
+  border-color: #ddd6fe;
+}
+
+/* .badge-danger was referenced by several templates (SLA breach, EDD,
+   watchlist, sanctions match warnings) but was never defined anywhere —
+   those badges rendered with no color at all. */
+.badge-danger {
+  background: var(--danger-bg);
+  color: var(--red);
+  border-color: var(--danger-border);
+}
+
+/* Affirmative "clear / not flagged" state — the subtle green counterpart
+   to .badge-danger, so screening columns read as an explicit pass rather
+   than an empty dash. */
+.badge-ok {
+  background: #f0fdf4;
+  color: var(--green);
+  border-color: #bbf7d0;
+}
+
+/* ── Initial Customer Risk Matrix (alert detail + customer detail) ── */
+.risk-matrix {
+  margin-top: 18px;
+  padding: 14px 16px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+  border-radius: 8px;
+}
+.risk-matrix-high {
+  border-left-color: #9f1239; /* deep crimson */
+}
+.risk-matrix-medium {
+  border-left-color: #d97706; /* soft amber */
+}
+.risk-matrix-low {
+  border-left-color: #059669; /* muted emerald */
+}
+.risk-matrix-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.risk-matrix-header h3 {
+  margin: 0;
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text-dim);
+}
+.irr-score {
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.irr-arrow {
+  color: var(--text-mute);
+  font-size: 15px;
+}
+/* Tier badge — heavier than the standard .badge chips on purpose: this is
+   the one number an investigator should see first. */
+.irr-badge {
+  display: inline-block;
+  padding: 4px 14px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+}
+.irr-high {
+  background: #9f1239; /* deep crimson */
+  color: #fff;
+  border-color: #881337;
+}
+.irr-medium {
+  background: #fef3c7; /* soft amber */
+  color: #92400e;
+  border-color: #fcd34d;
+}
+.irr-low {
+  background: #d1fae5; /* muted emerald */
+  color: #065f46;
+  border-color: #6ee7b7;
+}
+.risk-matrix-grid {
+  row-gap: 8px;
+}
+.risk-matrix-reasons {
+  margin: 12px 0 0;
+  font-size: 13px;
+  font-style: italic;
+  line-height: 1.5;
+  color: var(--text-dim);
+  overflow-wrap: break-word;
+}
+
+[data-theme="dark"] .status-open {
+  background: rgba(79, 140, 255, 0.12);
+  color: #8fb4ff;
+  border-color: rgba(79, 140, 255, 0.3);
+}
+[data-theme="dark"] .status-under_review {
+  background: rgba(232, 183, 61, 0.12);
+  color: var(--amber);
+  border-color: rgba(232, 183, 61, 0.3);
+}
+[data-theme="dark"] .status-escalated {
+  background: rgba(239, 90, 90, 0.12);
+  color: var(--red);
+  border-color: rgba(239, 90, 90, 0.3);
+}
+[data-theme="dark"] .status-draft_sar,
+[data-theme="dark"] .status-closed_sar {
+  background: rgba(155, 126, 240, 0.14);
+  color: var(--purple);
+  border-color: rgba(155, 126, 240, 0.32);
+}
+[data-theme="dark"] .status-closed_no_action,
+[data-theme="dark"] .status-closed {
+  background: rgba(53, 201, 143, 0.12);
+  color: var(--green);
+  border-color: rgba(53, 201, 143, 0.3);
+}
+[data-theme="dark"] .severity-low,
+[data-theme="dark"] .risk-low {
+  background: rgba(53, 201, 143, 0.12);
+  color: var(--green);
+  border-color: rgba(53, 201, 143, 0.3);
+}
+[data-theme="dark"] .severity-medium,
+[data-theme="dark"] .risk-medium {
+  background: rgba(232, 183, 61, 0.12);
+  color: var(--amber);
+  border-color: rgba(232, 183, 61, 0.3);
+}
+[data-theme="dark"] .severity-high,
+[data-theme="dark"] .risk-high,
+[data-theme="dark"] .badge-danger {
+  background: rgba(239, 90, 90, 0.14);
+  color: var(--red);
+  border-color: rgba(239, 90, 90, 0.32);
+}
+[data-theme="dark"] .badge-ok {
+  background: rgba(53, 201, 143, 0.12);
+  color: var(--green);
+  border-color: rgba(53, 201, 143, 0.3);
+}
+[data-theme="dark"] .irr-high {
+  background: #9f1239;
+  color: #fff;
+  border-color: #be123c;
+}
+[data-theme="dark"] .irr-medium {
+  background: rgba(232, 183, 61, 0.16);
+  color: var(--amber);
+  border-color: rgba(232, 183, 61, 0.4);
+}
+[data-theme="dark"] .irr-low {
+  background: rgba(53, 201, 143, 0.14);
+  color: var(--green);
+  border-color: rgba(53, 201, 143, 0.35);
+}
+[data-theme="dark"] .severity-critical,
+[data-theme="dark"] .risk-critical {
+  background: var(--red);
+  color: #1a0707;
+  border-color: var(--red);
+}
+[data-theme="dark"] .category-badge {
+  background: rgba(79, 140, 255, 0.12);
+  color: var(--accent);
+  border-color: rgba(79, 140, 255, 0.3);
+}
+[data-theme="dark"] .typology-badge {
+  background: rgba(155, 126, 240, 0.14);
+  color: var(--purple);
+  border-color: rgba(155, 126, 240, 0.32);
+}
+
+/* ── Age badges (dashboard, alerts list, alert detail) ────────────
+   Light default here; dark override below. Previously this class was
+   only ever defined with hardcoded dark colors (alerts.css /
+   alert_detail.css) or only light colors (dashboard.css), so whichever
+   stylesheet loaded last silently won on every page — this is the
+   single source of truth for both themes now. */
+.age-badge {
+  display: inline-block;
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 9px;
+  margin-left: 6px;
+  white-space: nowrap;
+}
+.age-badge.age-green {
+  background: #f0fdf4;
+  color: var(--green);
+}
+.age-badge.age-amber {
+  background: #fffbeb;
+  color: var(--amber);
+}
+.age-badge.age-red {
+  background: #fef2f2;
+  color: var(--red);
+}
+[data-theme="dark"] .age-badge.age-green {
+  background: rgba(63, 185, 80, 0.2);
+  color: #56d364;
+}
+[data-theme="dark"] .age-badge.age-amber {
+  background: rgba(210, 153, 34, 0.25);
+  color: #e3b341;
+}
+[data-theme="dark"] .age-badge.age-red {
+  background: rgba(248, 81, 73, 0.25);
+  color: #ff7b72;
+}
+
+/* ── Buttons ───────────────────────────────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 9px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-panel);
+  color: var(--text);
+  cursor: pointer;
+  transition:
+    filter 0.12s ease,
+    background 0.12s ease;
+}
+.btn:hover {
+  background: var(--bg-raised);
+  text-decoration: none;
+}
+.btn-sm {
+  padding: 5px 11px;
+  font-size: 12px;
+  border-radius: 6px;
+}
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.btn-primary:hover {
+  filter: brightness(1.08);
+}
+.btn-secondary {
+  background: var(--bg-raised);
+}
+.btn-danger {
+  background: var(--red);
+  border-color: var(--red);
+  color: #fff;
+}
+.btn-danger:hover {
+  filter: brightness(1.08);
+}
+
+/* ── Forms ─────────────────────────────────────────────────────── */
+.investigation-panel {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+}
+.form-group {
+  margin-bottom: 18px;
+}
+.form-group label {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+.required {
+  color: var(--red);
+}
+.form-group textarea,
+.form-group input,
+.form-group select {
+  width: 100%;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13.5px;
+  font-family: inherit;
+  resize: vertical;
+}
+.form-group textarea:focus,
+.form-group input:focus,
+.form-group select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.15);
+}
+.field-hint {
+  color: var(--text-mute);
+  font-size: 12px;
+  margin: 7px 0 0;
+  line-height: 1.5;
+}
+.field-hint strong {
+  color: var(--text-dim);
+}
+.form-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 6px;
+}
+.form-actions-stacked {
+  flex-direction: column;
+  align-items: stretch;
+}
+.btn-block {
+  justify-content: center;
+}
+.hint-inline {
+  display: inline;
+}
+.hint-block {
+  display: block;
+}
+
+/* ── Auth pages (login / signup) ───────────────────────────────── */
+.auth-footnote {
+  text-align: center;
+  margin: 4px 0 0;
+}
+.password-strength {
+  height: 5px;
+  margin-top: 8px;
+  border-radius: 4px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+.password-strength-fill {
+  height: 100%;
+  width: 0;
+  border-radius: 4px;
+  background: var(--red);
+  transition:
+    width 0.25s ease,
+    background 0.25s ease;
+}
+
+/* Segmented role toggle (signup): radio cards, keyboard/AT-friendly —
+   the real input stays in the DOM, the card is just its visual. */
+.role-toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.role-toggle-option {
+  position: relative;
+  margin: 0; /* cancel .form-group label's margin-bottom */
+}
+.role-toggle-option input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.role-toggle-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  height: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--bg-panel);
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease,
+    box-shadow 0.15s ease;
+}
+.role-toggle-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+.role-toggle-desc {
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-mute);
+  text-transform: none;
+  font-weight: 400;
+}
+.role-toggle-option input:checked + .role-toggle-card {
+  border-color: var(--accent);
+  background: var(--tint-bg-soft);
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.15);
+}
+.role-toggle-option input:checked + .role-toggle-card .role-toggle-title {
+  color: var(--accent);
+}
+.role-toggle-option input:focus-visible + .role-toggle-card {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.role-toggle-card:hover {
+  border-color: var(--accent);
+}
+
+/* ── Stat grid ─────────────────────────────────────────────────── */
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 14px;
+}
+.stat-card {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px 16px;
+}
+.stat-value {
+  font-size: 26px;
+  font-weight: 700;
+  font-family: "JetBrains Mono", monospace;
+}
+.stat-label {
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--text-mute);
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+/* ── Empty state ───────────────────────────────────────────────── */
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--text-mute);
+  font-size: 14px;
+  background: var(--bg-panel);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+}
+.related-alerts {
+  margin-top: 14px;
+}
+
+/* ── Filter bar ────────────────────────────────────────────────── */
+.filter-bar {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 14px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  margin-bottom: 18px;
+}
+.filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 130px;
+}
+.filter-field label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-mute);
+}
+.filter-field input,
+.filter-field select {
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  color: var(--text);
+  border-radius: 7px;
+  padding: 8px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  min-width: 130px;
+}
+.filter-reset {
+  margin-bottom: 1px;
+}
+.data-table th[data-sort] {
+  user-select: none;
+  cursor: pointer;
+}
+.data-table th[data-sort]:hover {
+  color: var(--text);
+}
+
+/* ── Responsive ────────────────────────────────────────────────── */
+@media (max-width: 720px) {
+  .kv-grid {
+    grid-template-columns: 1fr;
+    row-gap: 4px;
+  }
+  .kv-grid dt {
+    padding-top: 10px;
+  }
+  .topbar-inner {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .page {
+    padding: 20px 16px 60px;
+  }
+  /* Responsive tables: wide financial data tables are the main cause of
+     horizontal page scroll on phones. .table-scroll wraps a few of them, but
+     this makes EVERY .data-table scroll inside its own box on narrow screens
+     — the table becomes a horizontal scroll container instead of pushing the
+     whole page wider. Desktop layout (>720px) is untouched. */
+  .data-table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
 }

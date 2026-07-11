@@ -1,0 +1,52 @@
+{% extends "base.html" %} {% block title %}Rule Performance{% endblock %} {%
+block content %}
+<div class="page-header">
+  <h1>Rule Performance &amp; False Positive Rate</h1>
+  <p class="subtle">
+    One row per scenario &mdash; total alerts generated, how many were closed as
+    a false positive, and the resulting FP rate. Use this to spot scenarios
+    whose threshold may need adjusting via
+    <span class="mono">publish_rule_version()</span>.
+  </p>
+  <a href="{{ url_for('dashboard') }}" class="back-link"
+    >&larr; Back to dashboard</a
+  >
+</div>
+
+<section class="panel">
+  {% if not rows %}
+  <div class="empty-state">No scenario data yet.</div>
+  {% else %}
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Scenario</th>
+        <th>Total Alerts</th>
+        <th>False Positives</th>
+        <th>FP Rate</th>
+        <th>Last Alert</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td>
+          <div class="scenario-code">{{ r.scenario_code }}</div>
+          <div class="scenario-desc">{{ r.description }}</div>
+        </td>
+        <td class="mono">{{ r.total_alerts or 0 }}</td>
+        <td class="mono">{{ r.false_positive_count or 0 }}</td>
+        <td class="mono">
+          {% if r.fp_rate_pct is not none %}{{ "%.1f"|format(r.fp_rate_pct)
+          }}%{% else %}—{% endif %}
+        </td>
+        <td class="mono">
+          {{ (r.last_alert_at or '')[:19].replace('T',' ') or '—' }}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+{% endblock %}
