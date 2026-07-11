@@ -2875,6 +2875,13 @@ def run_engine(company_id: str = auth_security.LEGACY_COMPANY_ID, as_of_date: st
 
 if __name__ == "__main__":
     import sys
+    # See generator.py — load .env for direct terminal runs so decryption in
+    # the screening engine uses the same PII key the web app encrypted with.
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except ImportError:
+        pass
     cli_company_id = sys.argv[1] if len(sys.argv) > 1 else auth_security.LEGACY_COMPANY_ID
     cli_as_of = sys.argv[2] if len(sys.argv) > 2 else None
     run_engine(cli_company_id, cli_as_of)

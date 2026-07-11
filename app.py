@@ -1,4 +1,17 @@
 import os
+
+# Load .env into os.environ BEFORE any project import. Several modules
+# (auth_security.JWT_SECRET, this file's secret_key, pii_crypto's key) read
+# their configuration at import time, so the environment must be populated
+# first. load_dotenv() is a no-op in production, where real environment
+# variables are set by the platform and take precedence over any .env file.
+# Subprocesses launched by /run-pipeline inherit this populated os.environ.
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # python-dotenv optional at runtime; real env vars still work
+
 import re
 import sqlite3
 import subprocess

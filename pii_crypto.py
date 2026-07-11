@@ -103,9 +103,18 @@ def _resolve_keys() -> MultiFernet:
     return MultiFernet([Fernet(_derive_fernet_key(_DEV_SEED))])
 
 
-# Resolved once at import — one stable key set for the life of the process,
-# shared by every worker that imports this module with the same environment.
-_FERNET = _resolve_keys()
+# Resolved LAZILY on first use, then cached for the life of the process — one
+# stable key set shared by every worker. Lazy (not at import) so a `.env`
+# loaded via python-dotenv in an entry point's __main__ is honoured even though
+# this module is imported at the top of that file, before load_dotenv() runs.
+_FERNET: Optional[MultiFernet] = None
+
+
+def _get_fernet() -> MultiFernet:
+    global _FERNET
+    if _FERNET is None:
+        _FERNET = _resolve_keys()
+    return _FERNET
 
 
 def is_encrypted(value: object) -> bool:
@@ -123,7 +132,7 @@ def encrypt_pii(plaintext: Optional[str]) -> Optional[str]:
         return plaintext
     if is_encrypted(plaintext):
         return plaintext  # idempotent — never wrap twice (UPSERT re-read safety)
-    token = _FERNET.encrypt(str(plaintext).encode("utf-8")).decode("ascii")
+    token = _get_fernet().encrypt(str(plaintext).encode("utf-8")).decode("ascii")
     return ENC_PREFIX + token
 
 
@@ -137,7 +146,7 @@ def decrypt_pii(value: Optional[str]) -> Optional[str]:
     if not is_encrypted(value):
         return value  # None, or legacy/plaintext — nothing to do
     try:
-        return _FERNET.decrypt(value[len(ENC_PREFIX):].encode("ascii")).decode("utf-8")
+        return _get_fernet().decrypt(value[len(ENC_PREFIX):].encode("ascii")).decode("utf-8")
     except InvalidToken:
         # Wrong key (e.g. a rotated-out key with no overlap) or corrupted
         # token. Fail safe for a read path: log and surface a redaction marker

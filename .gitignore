@@ -1,17 +1,52 @@
-# Virtual Environment
+# ─────────────────────────────────────────────────────────────────────────
+# NexusBarrier — Python / Flask / SQLite .gitignore
+# ─────────────────────────────────────────────────────────────────────────
+
+# Secrets / environment — NEVER commit real secrets.
+# Ignore every .env variant, but keep the public template tracked.
+.env
+.env.*
+!.env.example
+
+# Virtual environments
 .venv/
 venv/
 env/
+ENV/
 
-# Python caching
+# Python bytecode / caches
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
-# Local Database and Logs
+# SQLite databases (local data — regenerable via the pipeline)
 data/database/
 *.db
+*.sqlite
+*.sqlite3
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Logs
 logs/
 *.log
 
-# macOS system files
+# Flask / build / packaging artifacts
+instance/
+.webassets-cache
+build/
+dist/
+*.egg-info/
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+
+# OS-specific files
 .DS_Store
+Thumbs.db

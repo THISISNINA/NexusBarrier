@@ -240,5 +240,12 @@ def run_ingestion(company_id: str) -> None:
 if __name__ == "__main__":
     import sys
     import auth_security
+    # See generator.py — load .env for direct terminal runs so the PII key here
+    # matches the web app's (encrypt/decrypt must use the same key).
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except ImportError:
+        pass
     cli_company_id = sys.argv[1] if len(sys.argv) > 1 else auth_security.LEGACY_COMPANY_ID
     run_ingestion(cli_company_id)

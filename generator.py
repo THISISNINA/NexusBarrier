@@ -814,5 +814,13 @@ def main(company_id: str):
 if __name__ == "__main__":
     import sys
     import auth_security
+    # Direct terminal runs load .env themselves (app-triggered subprocess runs
+    # inherit os.environ from the parent). Ensures the SAME NEXUSBARRIER_PII_KEY
+    # is used here as the web app, so what this script encrypts stays readable.
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except ImportError:
+        pass
     cli_company_id = sys.argv[1] if len(sys.argv) > 1 else auth_security.LEGACY_COMPANY_ID
     main(cli_company_id)
