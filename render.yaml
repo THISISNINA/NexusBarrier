@@ -1,0 +1,32 @@
+# Render Blueprint for NexusBarrier — free web service, single worker.
+# Deploy: push this repo to GitHub, then in Render → New → Blueprint, point at the repo.
+# Docs: https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: nexusbarrier
+    runtime: python
+    plan: free
+    # Single worker is REQUIRED: cooldown/pipeline-lock state lives in process
+    # memory (see app.py _reset_state/_pipeline_state) and is only correct under -w 1.
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn -w 1 -b 0.0.0.0:$PORT app:app
+    envVars:
+      # RENDER is set automatically by the platform and trips app.py's production
+      # secret guard, so a missing key hard-fails the deploy instead of booting
+      # on the dev fallback.
+      - key: NEXUSBARRIER_ENV
+        value: production
+      # Auto-generated once by Render and kept stable across restarts.
+      - key: NEXUSBARRIER_SECRET_KEY
+        generateValue: true
+      - key: JWT_SECRET
+        generateValue: true
+      # Fernet key can't be auto-generated (needs a specific format) — set in the
+      # dashboard. Changing it later makes previously-encrypted PII unreadable.
+      - key: NEXUSBARRIER_PII_KEY
+        sync: false
+      # First /platform super-admin, created on boot if the username is new.
+      - key: PLATFORM_ADMIN_USERNAME
+        sync: false
+      - key: PLATFORM_ADMIN_PASSWORD
+        sync: false
