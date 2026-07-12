@@ -12,15 +12,7 @@ import aml_risk
 import auth_security
 import pii_crypto
 
-# Configuration
-# Anchored to this file's own location, not the process's working
-# directory. A bare relative Path resolves against whatever folder the
-# process happened to be launched from — fine when you always run
-# `python app.py` from the project root locally, but a real risk on a
-# production host (WSGI config, systemd, a different launch script)
-# where the working directory isn't guaranteed. A mismatch here doesn't
-# error — it silently opens/creates a second, empty database, which
-# looks exactly like "all my data disappeared."
+# Configuration — paths anchored to this file's location, not the working directory, so a different launch dir can't silently open a second empty database.
 _BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = _BASE_DIR / "data" / "database" / "aml_monitoring.db"
 SCREENING_DB_PATH = _BASE_DIR / "data" / "database" / "screening.db"  # Separate DB — mirrors real-life separation
@@ -28,45 +20,13 @@ SCREENING_DB_PATH = _BASE_DIR / "data" / "database" / "screening.db"  # Separate
 # Thresholds (AED) — aligned to CBUAE AML/CFT Guidelines and FATF RBA
 CASH_AGG_6M_THRESHOLD = 55_000
 
-# Cash-channel discrimination
-# Which transaction_type values count as physical currency. The cash-
-# exclusive rules (SCN_CASH_AGG_6M, SCN_STRUCTURING_CASH,
-# SCN_MULTI_ACCOUNT_STRUCTURING, CTR filings) previously evaluated EVERY
-# transaction — international wires, crypto-exchange outflows, salary
-# credits — against cash-specific thresholds, so an account whose activity
-# was one small ATM deposit plus a stack of contract-payment wires could
-# fire a high-severity "cash aggregation" alert. transaction_type now
-# discriminates the channel.
-#
-# NULL handling is deliberate and fail-safe: rows loaded before the column
-# existed (or from CSVs that omit it) have transaction_type IS NULL and
-# STILL count as cash-eligible — a monitoring rule silently skipping
-# untyped transactions would be a regulatory gap (missed alerts), whereas
-# over-inclusion only costs false positives. The predicate excludes only
-# transactions POSITIVELY known to be non-cash.
+# Cash-channel discrimination: which transaction_type values count as physical currency for the cash-exclusive rules; NULL (untyped/legacy) is fail-safe cash-eligible, and only positively-non-cash rows are excluded.
 CASH_TRANSACTION_TYPES = ("CASH_DEPOSIT", "CASH_WITHDRAWAL")
 CASH_TYPE_SQL_PREDICATE = (
     "(transaction_type IS NULL OR transaction_type IN ('CASH_DEPOSIT', 'CASH_WITHDRAWAL'))"
 )
 
-# Expected-volume-aware cash aggregation (SCN_CASH_AGG_6M)
-# The flat AED 55,000 floor alone contradicts the customer_profiles data
-# model: a customer with expected_monthly_volume of AED 50,000 crosses a
-# 55k six-month aggregate in week five of completely normal, KYC-declared
-# activity — guaranteed monthly false positives. The effective threshold is
-# therefore the GREATER of the flat floor and a fraction of the customer's
-# own declared six-month expected volume:
-#
-#   effective = MAX(base 55k, MIN(EMV * 6 * RATIO, CEILING)) * risk-tier multiplier
-#
-# RATIO 0.5 = "more than half of your declared total expected volume moving
-# as physical cash is anomalous regardless of absolute size". The CEILING
-# stops a customer with an enormous declared EMV from being effectively
-# unmonitored, and the aml_risk tier multiplier (0.7x HIGH/PEP, 1.3x LOW)
-# still scales the whole expression, so RBA-enhanced monitoring is
-# preserved. Like the tier multipliers, RATIO/CEILING are institutional
-# calibration, not statutory figures — a real deployment signs these off
-# with compliance/legal, it doesn't inherit them from a demo.
+# Expected-volume-aware SCN_CASH_AGG_6M: effective = MAX(flat 55k, MIN(EMV*6*RATIO, CEILING)) * risk-tier multiplier, so a customer's own declared volume avoids guaranteed false positives; RATIO/CEILING are institutional calibration, not statutory.
 CASH_AGG_WINDOW_MONTHS = 6
 CASH_AGG_EXPECTED_VOLUME_RATIO = 0.5
 CASH_AGG_EXPECTED_VOLUME_CEILING = 500_000
@@ -83,16 +43,7 @@ BEHAVIOUR_REVIEW_DAYS = 30
 DORMANT_MONTHS = 6
 DORMANT_INACTIVITY_DAYS = 180
 DORMANT_REACT_MIN_AMOUNT = 15_000
-# Weakness fix: the flat AED threshold above treats every account
-# identically regardless of what's normal for THAT account. A dormant
-# account that historically never moved more than AED 2,000 reactivating
-# with AED 12,000 is arguably just as notable as one hitting the flat
-# AED 15,000 floor — it just never gets there under a single fixed
-# number. This multiplier adds a second, relative path: reactivating at
-# N-times the account's own average transaction size before it went
-# dormant, even below the flat floor. Mirrors the same
-# ratio-vs-own-baseline approach SCN_BEHAVIOUR_CHANGE already uses,
-# rather than inventing a new methodology.
+# Weakness fix: a second, relative reactivation path — N-times the account's own pre-dormancy average, even below the flat floor — mirroring SCN_BEHAVIOUR_CHANGE's ratio-vs-own-baseline approach.
 DORMANT_REACT_RELATIVE_MULTIPLIER = 3.0
 DORMANT_REACT_HISTORY_LOOKBACK_DAYS = 365
 RAPID_LAYERING_WINDOW_HRS = 72
@@ -128,22 +79,13 @@ SCENARIO_TYPOLOGY_MAP = {
     "SCN_RAPID_LAYERING":            "LAYERING",
     "SCN_MULTI_ACCOUNT_STRUCTURING": "SMURFING",
     "SCN_CROSS_BORDER_ANOMALY":      "TRADE_BASED_ML",
-    # Screening-match scenarios: a screening.db cross-reference hit (not a
-    # transactional pattern) routed straight into the same alert queue and
-    # workflow as every other scenario, instead of sitting on a standalone
-    # reference page. See run_scn_sanction_match / run_scn_pep_match /
-    # run_scn_internal_watchlist_match below.
+    # Screening-match scenarios: screening.db hits routed into the same alert queue/workflow as any scenario (see run_scn_sanction_match / run_scn_pep_match / run_scn_internal_watchlist_match).
     "SCN_SANCTION_MATCH":            "SANCTIONS_MATCH",
     "SCN_PEP_MATCH":                 "PEP_MATCH",
     "SCN_INTERNAL_WATCHLIST":        "INTERNAL_WATCHLIST",
 }
 
-# Logging
-# Anchored the same way as DB_PATH above — a bare relative path here
-# crashes at import time (FileNotFoundError, not a silent misbehavior)
-# if "logs/" doesn't happen to exist relative to wherever the process
-# was launched from. Reproduced this directly while writing tests for
-# the DB_PATH fix.
+# Logging — path anchored like DB_PATH so a different launch dir can't crash at import with a missing logs/ directory.
 _LOG_DIR = _BASE_DIR / "logs"
 _LOG_DIR.mkdir(exist_ok=True)
 logging.basicConfig(
@@ -155,19 +97,7 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 
-# Task 2: per-record robustness accounting
-# run_engine processes each active scenario, and each scenario raises alerts
-# per account/transaction via raise_alert(). A single malformed customer row or
-# a transient DB error while scoring ONE record must not abort the whole
-# scenario (and thus silently drop every later account it would have flagged).
-# raise_alert() catches such per-record failures, increments this counter, and
-# returns None so the scenario's own loop simply moves on to the next record.
-#
-# Module-level rather than threaded through all ~15 scenario functions: engine
-# runs are single-threaded and strictly sequential (see run_engine's single
-# connection + the /run-pipeline lock), so a run-scoped module counter that
-# run_engine resets at the start and reads at the end is safe and far less
-# invasive than a parameter on every scenario signature.
+# Task 2: per-record robustness counter — raise_alert() swallows a single malformed/transient record failure, bumps this, and returns None so the scenario continues; module-level (not a per-scenario param) since runs are single-threaded and sequential.
 _errored_records_count = 0
 
 
@@ -498,10 +428,7 @@ def _get_screening_conn() -> sqlite3.Connection:
             notes TEXT
         );
     """)
-    # internal_watchlist is each bank's own list (unlike sanctions_list/
-    # pep_list in this same database, which stay global/shared) — see
-    # _add_column_if_missing for why this needs the additive-migration
-    # guard rather than just being in the CREATE TABLE above.
+    # internal_watchlist is each bank's own list (unlike global sanctions_list/pep_list) — see _add_column_if_missing for why it needs the additive-migration guard.
     _add_column_if_missing(conn, "internal_watchlist", "company_id", f"TEXT NOT NULL DEFAULT '{auth_security.LEGACY_COMPANY_ID}'")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_internal_watchlist_company ON internal_watchlist(company_id)")
     conn.commit()
@@ -538,55 +465,29 @@ def _apply_additive_migrations(conn: sqlite3.Connection) -> None:
     # Item 15: EDD flag on customer
     _add_column_if_missing(conn, "customer_profiles", "edd_required", "INTEGER DEFAULT 0")
     _add_column_if_missing(conn, "customer_profiles", "edd_reason", "TEXT")
-    # Expanded KYC identity schema — inputs to kyc_risk.calculate_initial_risk_rating.
-    # date_of_birth stays NULL for CORPORATE/CORRESPONDENT profiles; nationality
-    # doubles as country of incorporation for non-individuals. Also listed in
-    # _rebuild_customer_profiles_with_composite_pk's CREATE TABLE below — a
-    # legacy single-PK DB gains these columns here first, then the rebuild
-    # copies every column by name, so both definitions must agree.
+    # Expanded KYC identity schema (inputs to kyc_risk); must agree with _rebuild_customer_profiles_with_composite_pk's CREATE TABLE, which copies every column by name.
     _add_column_if_missing(conn, "customer_profiles", "nationality", "TEXT")
     _add_column_if_missing(conn, "customer_profiles", "country_of_residence", "TEXT")
     _add_column_if_missing(conn, "customer_profiles", "date_of_birth", "TEXT")
     # Item 16: SLA tracking on alerts
     _add_column_if_missing(conn, "aml_alerts", "sla_due_date", "TEXT")
     _add_column_if_missing(conn, "aml_alerts", "sla_breached", "INTEGER DEFAULT 0")
-    # Item 12: wire/counterparty fields may also be queried via aml_alert_transactions
-    # joins — no new columns needed here since they live on transactions
-    # (see aml_loader.py), but cases table gets a narrative for item 10.
+    # Item 12: wire/counterparty fields live on transactions (see aml_loader.py); the cases table gets a narrative for item 10.
     _add_column_if_missing(conn, "cases", "case_narrative", "TEXT")
-    # Screening-match scenarios (SCN_SANCTION_MATCH / SCN_PEP_MATCH /
-    # SCN_INTERNAL_WATCHLIST): structured hit details so alert_detail.html
-    # can render the exact matched target without parsing the narrative.
+    # Screening-match scenarios: structured hit details so alert_detail.html can render the matched target without parsing the narrative.
     _add_column_if_missing(conn, "aml_alerts", "screening_match_name", "TEXT")
     _add_column_if_missing(conn, "aml_alerts", "screening_match_source", "TEXT")
     _add_column_if_missing(conn, "aml_alerts", "screening_match_field", "TEXT")
     _add_column_if_missing(conn, "aml_alerts", "screening_match_type", "TEXT")
     _add_column_if_missing(conn, "aml_alerts", "screening_match_score", "REAL")
 
-    # Item 2: pre-transaction wire interdiction — submit_wire_transfer()
-    # writes these two columns on every live wire submission, but they
-    # were never added to the transactions table (aml_loader.init_db()
-    # only knows about the batch-load columns). Missing guard, not a
-    # deliberate omission — wire_log.html's query on t.interdiction_status
-    # fails with "no such column" without this.
-    #
-    # transactions is the one table in this migration list that isn't
-    # created anywhere in this file's own SCHEMA_DDL (aml_loader.init_db()
-    # owns it) — so unlike every other _add_column_if_missing call above,
-    # this one has to check the table actually exists first, or it throws
-    # "no such table: transactions" on a brand-new DB that hasn't been
-    # through the ingestion pipeline yet.
+    # Item 2: add interdiction columns that submit_wire_transfer() writes; transactions is owned by aml_loader.init_db(), so this one guards on the table existing first (brand-new DBs haven't ingested yet).
     if conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='transactions'"
     ).fetchone():
         _add_column_if_missing(conn, "transactions", "interdiction_status", "TEXT")
         _add_column_if_missing(conn, "transactions", "interdicted_at", "TEXT")
-        # Channel + virtual-asset + routing metadata (see aml_loader.py's
-        # CREATE TABLE for the canonical column comments). Added here too —
-        # not just in aml_loader.init_db — because an existing DB may reach
-        # init_schema() (app start, demo reset) before its next ingestion
-        # run, and the cash-channel predicates below would otherwise hit
-        # "no such column: transaction_type" on the first engine pass.
+        # Channel/virtual-asset/routing metadata (canonical comments in aml_loader.py), added here too so init_schema before the next ingestion doesn't hit "no such column: transaction_type".
         _add_column_if_missing(conn, "transactions", "transaction_type", "TEXT")
         _add_column_if_missing(conn, "transactions", "counterparty_type", "TEXT")
         _add_column_if_missing(conn, "transactions", "counterparty_wallet_address", "TEXT")
@@ -596,12 +497,7 @@ def _apply_additive_migrations(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_alerts_priority ON aml_alerts(status, priority_rank)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_alerts_case ON aml_alerts(case_id)")
 
-    # Multi-tenant retrofit: company_id on every per-company table
-    # Every table below is real operational data owned by exactly one
-    # company (aml_scenarios/rule_versions and sanctions_list/pep_list are
-    # deliberately excluded — those stay global/shared across tenants).
-    # DEFAULT backfills pre-migration rows onto auth_security.LEGACY_COMPANY_ID
-    # rather than leaving them ownerless.
+    # Multi-tenant retrofit: company_id on every per-company table (aml_scenarios/rule_versions and sanctions_list/pep_list stay global), backfilling pre-migration rows onto LEGACY_COMPANY_ID.
     _legacy = auth_security.LEGACY_COMPANY_ID
     _add_column_if_missing(conn, "aml_alerts", "company_id", f"TEXT NOT NULL DEFAULT '{_legacy}'")
     _add_column_if_missing(conn, "str_decisions", "company_id", f"TEXT NOT NULL DEFAULT '{_legacy}'")
@@ -613,17 +509,10 @@ def _apply_additive_migrations(conn: sqlite3.Connection) -> None:
     _add_column_if_missing(conn, "customer_profiles", "company_id", f"TEXT NOT NULL DEFAULT '{_legacy}'")
     _add_column_if_missing(conn, "aml_engine_runs", "company_id", f"TEXT NOT NULL DEFAULT '{_legacy}'")
 
-    # Task 1 (four-eyes): audit flag recording that a sole-MLRO tenant closed
-    # an alert the same MLRO escalated, under an on-screen self-attestation.
-    # A dedicated column (not just a log line) so it can be pulled cleanly
-    # during an independent regulatory audit. Defaults 0 for every existing
-    # and normal (properly dual-controlled) decision.
+    # Task 1 (four-eyes): audit flag for a sole-MLRO self-attested close; a dedicated column so a regulator can pull it cleanly, defaulting 0 for normal dual-controlled decisions.
     _add_column_if_missing(conn, "str_decisions", "self_reviewed", "INTEGER NOT NULL DEFAULT 0")
 
-    # Task 2 (robustness): per-run count of individual records that threw
-    # during alert-raising/risk-scoring and were skipped. A run with >0 here
-    # is a PARTIAL pass — surfaced on the dashboard so a silent partial
-    # success can't be mistaken for a clean run.
+    # Task 2 (robustness): per-run count of skipped records that threw during alert-raising/scoring; >0 marks a PARTIAL pass, surfaced on the dashboard.
     _add_column_if_missing(conn, "aml_engine_runs", "errored_records_count", "INTEGER NOT NULL DEFAULT 0")
 
     conn.execute("CREATE INDEX IF NOT EXISTS idx_alerts_company ON aml_alerts(company_id)")
@@ -778,21 +667,13 @@ def rule_version_history(conn: sqlite3.Connection, scenario_code: str) -> list[d
 
 
 def init_schema(conn: sqlite3.Connection) -> None:
-    # Creates companies/users (and the lockout/CSRF/refresh-token tables
-    # built on top of them) before the additive migrations below add
-    # company_id columns that backfill onto auth_security.LEGACY_COMPANY_ID
-    # — that id needs to already be a real row in `companies`.
+    # Creates companies/users (and their auth tables) before the additive migrations backfill company_id onto LEGACY_COMPANY_ID, which must already be a real companies row.
     auth_security.ensure_auth_schema(conn)
     conn.executescript(SCHEMA_DDL)
     _apply_additive_migrations(conn)
     _seed_initial_rule_versions(conn)
     log.info("Schema and scenario registry initialised.")
-    # Item 3: customer_profiles is now owned by generator.py (names, CRR,
-    # account_category, UBO/BIC) — this is now a no-op kept only so any
-    # code path that still calls it doesn't break, and so a DB that has
-    # transactions but was never run through generator.py still gets
-    # placeholder profiles rather than crashing scenarios that JOIN
-    # customer_profiles.
+    # Item 3: customer_profiles is now owned by generator.py — this is a near-no-op that only backfills placeholder profiles for transactions loaded without ever running generator.py.
     seed_profiles_from_existing_data(conn)
     seed_sanctions_list(conn)
 
@@ -801,10 +682,7 @@ def init_schema(conn: sqlite3.Connection) -> None:
 class AMLWorkflowManager:
     """Manages the lifecycle, audit logs, and state transitions of alerts."""
 
-    # Item 13: DRAFT_SAR inserted between ESCALATED and CLOSED_SAR. Both
-    # the draft step and the final filing step are MLRO-only (enforced
-    # below via the existing "only MLRO may act on ESCALATED" guard, which
-    # we extend to also gate the DRAFT_SAR -> CLOSED_SAR submission step).
+    # Item 13: DRAFT_SAR inserted between ESCALATED and CLOSED_SAR; both steps are MLRO-only, gated by the extended "only MLRO may act on ESCALATED" guard.
     VALID_TRANSITIONS = {
         'OPEN':             ['UNDER_REVIEW'],
         'UNDER_REVIEW':     ['ESCALATED', 'CLOSED_SAR', 'CLOSED_NO_ACTION'],
@@ -871,12 +749,7 @@ class AMLWorkflowManager:
         engine decides whether it is permitted (and required) below."""
         now = datetime.now(timezone.utc).isoformat()
         current_record = cls.get_latest_decision(conn, alert_id)
-        # Every str_decisions row must carry the SAME company_id as the alert
-        # it's about — looked up here rather than accepted as a parameter,
-        # since callers already prove ownership before ever reaching this
-        # method (see aml_service._assert_alert_owned_by), and a value handed
-        # in here could only ever duplicate or contradict the alert's own,
-        # authoritative company_id.
+        # Every str_decisions row carries its alert's company_id, looked up here (not a parameter) since a passed value could only duplicate or contradict the alert's authoritative one.
         alert_company_row = conn.execute(
             "SELECT company_id FROM aml_alerts WHERE alert_id = ?", (alert_id,)
         ).fetchone()
@@ -894,8 +767,7 @@ class AMLWorkflowManager:
         if target_status not in cls.VALID_TRANSITIONS[current_status]:
             raise WorkflowError(f"Compliance Violation: Cannot change state from {current_status} to {target_status}.")
 
-        # Item 13: MLRO-only gate now also covers ESCALATED and DRAFT_SAR,
-        # since both intermediate states are MLRO-owned work.
+        # Item 13: MLRO-only gate covers ESCALATED and DRAFT_SAR — both are MLRO-owned work.
         if current_status in ('ESCALATED', 'DRAFT_SAR') and analyst_role != 'MLRO':
             raise WorkflowError(
                 "Compliance Violation: Only an MLRO may act on an escalated or "
@@ -912,10 +784,7 @@ class AMLWorkflowManager:
         if target_status == 'CLOSED_SAR' and current_status == 'DRAFT_SAR' and not goaml_ref:
             raise WorkflowError("Filing Failure: Submitting a drafted SAR requires a goaml_reference_number.")
 
-        # Four-Eyes / Dual Control (Task 1 — role-based hierarchy)
-        # `self_reviewed` is written to the closing str_decisions row: 1 only
-        # on the audited sole-MLRO self-close path below, 0 on every properly
-        # dual-controlled closure.
+        # Four-Eyes / Dual Control (Task 1): self_reviewed on the closing str_decisions row is 1 only on the audited sole-MLRO self-close path, else 0.
         self_reviewed = False
         if target_status in ('CLOSED_SAR', 'CLOSED_NO_ACTION') and current_status in ('ESCALATED', 'DRAFT_SAR'):
             # Who escalated this alert (most recent ESCALATED decision)?
@@ -927,17 +796,11 @@ class AMLWorkflowManager:
             escalator_id = escalation_row[0] if escalation_row else None
             escalator_role = escalation_row[1] if escalation_row else None
 
-            # The MLRO_01 magic-ID backdoor is GONE. Escalation authority is
-            # decided purely by the recorded role of the escalator — no
-            # hardcoded identity is ever treated as special.
+            # No magic-ID backdoor: escalation authority is decided purely by the escalator's recorded role, never a hardcoded identity.
             escalated_by_mlro = escalator_role == 'MLRO'
 
             if not escalated_by_mlro:
-                # Rule 1 (Standard flow): a regular analyst escalated, so any
-                # MLRO must close. The ESCALATED/DRAFT_SAR MLRO-only gate above
-                # already guarantees the closer is an MLRO; here we only need to
-                # guarantee the two people are actually distinct — the escalating
-                # analyst can never also be the closer on the same record.
+                # Rule 1 (Standard flow): analyst escalated, so any MLRO closes; only need the closer distinct from the escalator.
                 if escalator_id is not None and analyst_id == escalator_id:
                     raise WorkflowError(
                         "Compliance Violation (Four-Eyes / Dual Control): the user who "
@@ -945,26 +808,19 @@ class AMLWorkflowManager:
                         "review and close an analyst-escalated alert."
                     )
             else:
-                # An MLRO escalated. Four-eyes now depends on how many MLROs the
-                # tenant actually has.
+                # An MLRO escalated — four-eyes now depends on how many MLROs the tenant has.
                 mlro_count = cls._count_active_mlros(conn, alert_company_id)
                 closer_is_escalator = escalator_id is not None and analyst_id == escalator_id
 
                 if closer_is_escalator and mlro_count >= 2:
-                    # Rule 2 (Dual-MLRO flow): a second, distinct MLRO exists —
-                    # they must be the one to close it (closer_id != escalator_id).
+                    # Rule 2 (Dual-MLRO flow): a second distinct MLRO exists and must close it (closer_id != escalator_id).
                     raise WorkflowError(
                         "Compliance Violation (Four-Eyes / Dual Control): you escalated "
                         "this alert and another MLRO is available in this workspace. A "
                         "second, distinct MLRO must review and close it."
                     )
                 if closer_is_escalator and mlro_count < 2:
-                    # Rule 3 (Sole-MLRO override): this workspace has only one
-                    # MLRO, so the same MLRO closing their own escalation is
-                    # unavoidable — but only under an explicit on-screen
-                    # self-attestation, and the fact is stamped into the audit
-                    # trail (self_reviewed = 1) so a regulator can pull every
-                    # self-reviewed closure cleanly.
+                    # Rule 3 (Sole-MLRO override): the only MLRO may close their own escalation, but only under explicit self-attestation stamped self_reviewed = 1.
                     if not self_attested:
                         raise WorkflowError(
                             "Self-review attestation required: you are the only MLRO in "
@@ -1108,9 +964,7 @@ def _apply_post_sar_effects(conn: sqlite3.Connection, alert_id: str, now: str) -
     if not customer:
         return
     customer_name = customer[0] if not isinstance(customer, sqlite3.Row) else customer["customer_name"]
-    # Task 3: decrypt before normalising/matching and before it's copied into
-    # the internal watchlist — the watchlist stores the real name, same as it
-    # did before customer_name was encrypted at rest.
+    # Task 3: decrypt before normalising/matching and before copying into the internal watchlist, which stores the real name.
     customer_name = pii_crypto.decrypt_pii(customer_name)
 
     try:
@@ -1219,14 +1073,7 @@ def time_in_review_summary(conn: sqlite3.Connection, alert_id: str, company_id: 
     }
 
 
-# RBA Customer Layer
-# Item 3: customer name/CRR/account-category generation has moved to
-# generator.py (the spec's required location). This function is now a
-# lightweight backwards-compatible fallback ONLY — it inserts a bare
-# MEDIUM-risk RETAIL placeholder profile for any account_id that appears
-# in `transactions` but has no customer_profiles row at all (e.g. a DB
-# that had transactions loaded without ever running generator.py). It
-# does NOT overwrite or duplicate the rich profiles generator.py creates.
+# RBA Customer Layer (Item 3): profile generation moved to generator.py; this is a fallback only, inserting a bare MEDIUM/RETAIL placeholder for account_ids with no profile, never overwriting generator.py's rich profiles.
 def seed_profiles_from_existing_data(conn: sqlite3.Connection) -> int:
     try:
         discovered = conn.execute("SELECT DISTINCT account_id, company_id FROM transactions").fetchall()
@@ -1297,31 +1144,16 @@ def raise_alert(conn: sqlite3.Connection, scenario_code: str, account_id: str, t
         log.info("Suppressed alert (recently cleared): %s / %s", scenario_code, account_id)
         return None
 
-    # Task 2: per-record robustness net
-    # Everything below — risk scoring (aml_risk.compute_risk_score, the
-    # aml_engine.py:1190 reference point) and the three alert INSERTs — runs
-    # for ONE account/transaction. Wrapped in a SAVEPOINT so that if a single
-    # malformed record or a transient DB error throws partway through, we roll
-    # back only THIS record's partial writes (not the whole scenario run),
-    # record the failure with full context, bump the run's errored-record
-    # count, and return None. The calling scenario loop treats None as
-    # "nothing raised" and cleanly continues to the next record — one bad row
-    # can no longer take down every account the scenario would have flagged.
+    # Task 2: per-record robustness net — this record's scoring + alert INSERTs run in a SAVEPOINT, so a single failure rolls back only its partial writes, logs, bumps the error count, and returns None (loop continues).
     conn.execute("SAVEPOINT raise_alert")
     try:
         as_of = period_end[:10] if period_end else datetime.now(timezone.utc).strftime("%Y-%m-%d")
         score_breakdown = aml_risk.compute_risk_score(conn, account_id, company_id, as_of_date=as_of)
         aml_risk.persist_risk_score(conn, score_breakdown, company_id)
-        # severity_from_score only ever returns LOW / MEDIUM / HIGH (see
-        # aml_risk._tier_from_score) — the score can escalate the scenario's
-        # own floor severity upward but the 3-tier ceiling is enforced there,
-        # not here, so there is no path to a 4th "CRITICAL" tier anywhere in
-        # the alert-raising pipeline.
+        # severity_from_score only returns LOW/MEDIUM/HIGH — the score can raise the scenario's floor but the 3-tier ceiling is enforced there, so no "CRITICAL" path exists.
         severity = aml_risk.severity_from_score(score_breakdown.composite_score, floor_severity=severity)
 
-        # Item 15: customers already under EDD get their alert severity
-        # floor bumped — LOW -> MEDIUM, MEDIUM/HIGH unchanged — and a note
-        # appended to the narrative, regardless of which scenario fired.
+        # Item 15: customers under EDD get their severity floor bumped (LOW -> MEDIUM) and a narrative note, regardless of scenario.
         edd_row = conn.execute(
             "SELECT edd_required FROM customer_profiles WHERE account_id = ? AND company_id = ?", (account_id, company_id)
         ).fetchone()
@@ -1473,8 +1305,7 @@ def run_scn_cash_agg_6m(conn: sqlite3.Connection, as_of_date: str, company_id: s
 # Scenario 2: SCN_STRUCTURING_CASH
 def run_scn_structuring_cash(conn: sqlite3.Connection, as_of_date: str, company_id: str) -> Tuple[int, int]:
     log.info("Running SCN_STRUCTURING_CASH as_of=%s company_id=%s", as_of_date, company_id)
-    # Cash-channel only — structuring is specifically the evasion of CASH
-    # reporting thresholds; a wire in the 8.5k-10k band is unremarkable.
+    # Cash-channel only — structuring evades CASH reporting thresholds; a wire in the 8.5k-10k band is unremarkable.
     rows = conn.execute(f"""
         SELECT account_id, COUNT(*) AS tx_count, SUM(amount) AS total_amount,
                MIN(transaction_date) AS period_start, MAX(transaction_date) AS period_end,
@@ -1540,19 +1371,7 @@ def run_scn_high_risk_jurisdiction(conn: sqlite3.Connection, as_of_date: str, co
         else:
             suppressed += 1
 
-    # Routing-path leg
-    # The endpoint query above only sees t.country — the DECLARED origin/
-    # destination. Real payments (SWIFT cover payments, crypto off-ramps)
-    # traverse intermediary hops, and a transfer whose declared endpoint is
-    # benign can still be routed through a blacklisted jurisdiction. Those
-    # hops now live in transactions.intermediary_countries (pipe-separated,
-    # e.g. "AE|MM|SG"); this pass screens every hop against the same
-    # HIGH_RISK_JURISDICTIONS set and threshold logic. Parsed in Python
-    # rather than SQL — the pipe-list unnesting is far clearer here, and
-    # rows with routing metadata are a small subset of the table.
-    # Transactions whose ENDPOINT is already high-risk are skipped: the
-    # endpoint loop above owns those, and one alert per transaction is
-    # enough context for the analyst either way.
+    # Routing-path leg: the endpoint query only sees declared t.country, so this pass screens every intermediary_countries hop (pipe-separated) against HIGH_RISK_JURISDICTIONS in Python, skipping transactions whose endpoint is already high-risk.
     routing_rows = conn.execute("""
         SELECT t.transaction_id, t.account_id, t.amount, t.country, t.transaction_date,
                t.intermediary_countries, t.transaction_type,
@@ -1734,12 +1553,7 @@ def _sync_pep_flags_from_screening_db(conn: sqlite3.Connection, company_id: str)
     log.info("PEP flags synced from screening.db for %d customer profiles.", updated)
 
 
-# Scenarios 6a/6b/6c: Screening-match scenarios
-# These three replace the old standalone "screening list" reference page.
-# In a real bank, a screening hit is never just a passive entry on a chart —
-# it's a rule-based scenario like any other, and it goes into the same
-# Open Queue, through the same workflow, under the same severity model
-# (LOW/MEDIUM/HIGH only) as a structuring or rapid-layering alert.
+# Scenarios 6a/6b/6c: Screening-match scenarios — a screening hit is a rule-based scenario like any other, going into the same Open Queue, workflow, and severity model, not a standalone reference page.
 def _normalize_name(name: str) -> str:
     """Uppercase, strip punctuation/whitespace — the baseline normaliser
     used for exact-match lookups (still the fast path; most real hits are
@@ -1748,28 +1562,9 @@ def _normalize_name(name: str) -> str:
     return re.sub(r"[^A-Z0-9 ]", "", name.upper()).strip()
 
 
-# Item 1: Fuzzy / phonetic name matching
-# Exact-string screening misses the single most common real-world evasion:
-# a sanctioned or watchlisted individual whose name is transliterated
-# slightly differently than the list entry — "Mohammed" vs "Mohamed" vs
-# "Muhammad", "Al Zaabi" vs "Alzaabi", a dropped middle name, a swapped
-# word order. None of those are exact matches, but every one of them is
-# the same person. Real sanctions-screening systems (World-Check, LexisNexis
-# WorldCompliance, etc.) run fuzzy + phonetic matching for exactly this
-# reason. This is a lightweight illustrative version of the same idea using
-# only the standard library — no new dependency — combining two signals:
-#
-#   1. Phonetic key (Soundex): catches sound-alike spelling variants
-#      ("Mohammed" / "Muhammad" collapse to the same key).
-#   2. Levenshtein-style similarity ratio (difflib.SequenceMatcher): catches
-#      near-identical spelling variants that don't sound the same enough
-#      for Soundex alone (dropped/added letters, word-order swaps).
-#
-# A candidate counts as a fuzzy match if EITHER signal clears its
-# threshold — they cover different failure modes, not the same one twice.
+# Item 1: fuzzy/phonetic name matching to catch transliteration variants exact-string screening misses; a stdlib-only combination of Soundex (sound-alike) and difflib similarity (near-identical spelling), matching if EITHER clears its threshold.
 FUZZY_MATCH_THRESHOLD = 0.86  # difflib ratio, 0-1; tuned to catch real
-                              # transliteration variants without flooding
-                              # the queue on coincidentally-similar names
+                              # transliteration variants without flooding the queue on coincidentally-similar names
 
 
 def _soundex(name: str) -> str:
@@ -1829,8 +1624,7 @@ def _find_best_fuzzy_match(name: str, candidates: dict) -> Optional[Tuple[str, f
         if cand_key == norm:
             continue  # exact matches are handled by the fast path already
         if _soundex(cand_key) == name_soundex:
-            # Phonetic hit — treat as a strong match even if the literal
-            # spelling differs more than the ratio threshold would allow.
+            # Phonetic hit — strong match even if spelling differs more than the ratio threshold allows.
             score = max(_similarity_ratio(norm, cand_key), 0.90)
             if score > best_score:
                 best_key, best_score, best_method = cand_key, score, "PHONETIC"
@@ -1962,8 +1756,7 @@ def run_scn_sanction_match(conn: sqlite3.Connection, as_of_date: str, company_id
         conn, as_of_date, "SCN_SANCTION_MATCH", sanctioned_by_norm, _severity, _narrative, company_id,
     )
 
-    # Category 3: wire-message ordering/beneficiary names (transaction-level,
-    # not covered by the account-holder/UBO loop above).
+    # Category 3: wire-message ordering/beneficiary names (transaction-level, not covered by the account-holder/UBO loop above).
     wire_rows = conn.execute("""
         SELECT t.transaction_id, t.account_id, t.transaction_date,
                t.ordering_customer_name, t.beneficiary_name
@@ -2086,10 +1879,7 @@ def run_scn_internal_watchlist_match(conn: sqlite3.Connection, as_of_date: str, 
     ).fetchall()
     for account_id, customer_name, ubo_names in customers:
         customer_name = pii_crypto.decrypt_pii(customer_name)  # Task 3: match on cleartext
-        # Direct account_id match (e.g. auto-added on a prior SAR filing —
-        # see _apply_post_sar_effects) takes priority over name matching,
-        # and is never "fuzzy" — an account_id is an exact identifier, not
-        # a name with spelling variants.
+        # Direct account_id match (e.g. auto-added on a prior SAR) takes priority over name matching and is never fuzzy — an account_id is an exact identifier.
         match = watch_by_account.get(account_id)
         role_label, name, match_type, score = "Account", account_id, "ACCOUNT_ID", 1.0
         if not match:
@@ -2131,22 +1921,7 @@ def run_scn_internal_watchlist_match(conn: sqlite3.Connection, as_of_date: str, 
     return raised, suppressed
 
 
-# Item 2: Pre-Transaction Wire Interdiction
-# Every screening scenario above (SCN_SANCTION_MATCH, SCN_PEP_MATCH,
-# SCN_INTERNAL_WATCHLIST) is DETECTION — it finds matches among
-# transactions that have already posted, during the next batch engine run.
-# That's realistic for account-level screening (you can't "block" a
-# customer who's already on your books), but it's NOT how real
-# correspondent banking handles wire transfers: a bank screens the
-# ordering-customer and beneficiary names on a SWIFT message BEFORE
-# releasing the payment. A sanctions hit means the wire never posts at
-# all — it's interdicted, held for compliance review, full stop.
-#
-# This is that missing pre-transaction step. It's deliberately a separate,
-# narrower function from the batch scenarios above — it only ever screens
-# the three names on ONE wire being submitted right now, synchronously,
-# and returns a blocked/cleared decision immediately, rather than waiting
-# for the next scheduled engine run.
+# Item 2: pre-transaction wire interdiction — unlike the batch screening scenarios (which detect after posting), this synchronously screens one submitted wire's three names and returns a blocked/cleared decision immediately.
 def screen_names_for_interdiction(for_screening: list[Tuple[str, str]]) -> Optional[dict]:
     """Screens a small set of (field_label, name) pairs against sanctions,
     PEP, and internal watchlist data, using the same exact-then-fuzzy
@@ -2169,14 +1944,7 @@ def screen_names_for_interdiction(for_screening: list[Tuple[str, str]]) -> Optio
         watch = {row[1]: (row[0], row[2]) for row in watch_rows}
         s_conn.close()
     except Exception:
-        # FAIL CLOSED. An unscreened correspondent-banking wire must never be
-        # released just because the sanctions/PEP/watchlist database had a
-        # transient error — releasing an unscreened wire is precisely the
-        # sanctions-evasion path this control exists to stop. Instead of
-        # returning None (which the caller treats as "clean, release it"), we
-        # return a synthetic HIGH match so submit_wire_transfer holds the wire
-        # as BLOCKED and opens a manual-review alert. match_type is EXACT so the
-        # narrative/UI don't present a misleading similarity score.
+        # FAIL CLOSED: on a screening-DB error, return a synthetic HIGH/EXACT match (not None) so the wire is held BLOCKED for manual review rather than released unscreened.
         log.error("Could not connect to screening.db — FAILING CLOSED: wire held for manual review.")
         return {
             "field": "Screening system", "name": "(wire could not be screened)",
@@ -2376,10 +2144,7 @@ def run_scn_dormant_reactivation(conn: sqlite3.Connection, as_of_date: str, comp
         else:
             suppressed += 1
 
-    # Path 2: relative to the account's OWN pre-dormancy average — the
-    # weakness fix. `t.amount < :min_amount` makes this mutually
-    # exclusive with path 1 by construction, so no account can be
-    # double-counted between the two queries.
+    # Path 2 (weakness fix): relative to the account's own pre-dormancy average; `t.amount < :min_amount` keeps it mutually exclusive with path 1, so no double-counting.
     relative_rows = conn.execute("""
         WITH last_before_gap AS (
             SELECT account_id, MAX(transaction_date) AS last_dormant_tx
@@ -2500,8 +2265,7 @@ def run_scn_rapid_layering(conn: sqlite3.Connection, as_of_date: str, company_id
 # Scenario 9: SCN_MULTI_ACCOUNT_STRUCTURING
 def run_scn_multi_account_structuring(conn: sqlite3.Connection, as_of_date: str, company_id: str) -> Tuple[int, int]:
     log.info("Running SCN_MULTI_ACCOUNT_STRUCTURING as_of=%s company_id=%s", as_of_date, company_id)
-    # Cash-channel only, same reasoning as SCN_STRUCTURING_CASH — smurfing
-    # is coordinated CASH placement across accounts.
+    # Cash-channel only (as SCN_STRUCTURING_CASH) — smurfing is coordinated CASH placement across accounts.
     rows = conn.execute(f"""
         SELECT transaction_id, account_id, amount, transaction_date
         FROM transactions
@@ -2585,20 +2349,7 @@ def run_scn_cross_border_anomaly(conn: sqlite3.Connection, as_of_date: str, comp
     return raised, suppressed
 
 
-# Item 3: Dynamic Customer Risk Re-Rating
-# Real banks recalculate a customer's risk rating periodically and after
-# material events — they don't leave it frozen at whatever was assigned on
-# day one. A customer who picks up three alerts and a SAR over six months
-# is not the same risk as they were at onboarding, and the system should
-# say so without a human having to remember to manually update it.
-#
-# This only ever escalates, never silently downgrades — exactly the same
-# floor-only pattern aml_risk.severity_from_score() already uses for alert
-# severity. De-risking a customer (HIGH -> MEDIUM/LOW) is a deliberate,
-# documented human decision in real compliance practice, not something an
-# automated job should do quietly. So this function can move a customer's
-# rating up; moving it back down requires a human editing the record
-# directly (or, in this demo, re-running generator.py for a clean slate).
+# Item 3: dynamic customer risk re-rating from post-onboarding events (alerts/SARs); escalates only, never auto-downgrades — de-risking is a deliberate human decision.
 RERATE_HIGH_OPEN_ALERT_COUNT = 3   # 3+ open alerts of any kind -> at least MEDIUM
 RERATE_HIGH_SCREENING_HIT = True   # any open SCN_SANCTION_MATCH/PEP_MATCH/WATCHLIST -> HIGH
 
@@ -2651,8 +2402,7 @@ def recalculate_customer_risk_ratings(conn: sqlite3.Connection, company_id: str)
             LIMIT 1
         """, (account_id, company_id)).fetchone() is not None
 
-        # Determine the rating the customer's CURRENT facts justify —
-        # independent of what they're rated today.
+        # Determine the rating the customer's current facts justify, independent of today's rating.
         if sar_count > 0:
             justified, reason = "HIGH", f"{sar_count} SAR(s) filed against this customer"
         elif screening_hit and RERATE_HIGH_SCREENING_HIT:
@@ -2679,8 +2429,7 @@ def recalculate_customer_risk_ratings(conn: sqlite3.Connection, company_id: str)
         else:
             final_rating = current_rating
 
-        # EDD floor (see docstring): PEP or HIGH rating without the flag
-        # is a contradiction the register must never display.
+        # EDD floor (see docstring): a PEP or HIGH rating without the flag is a contradiction the register must never show.
         if not edd_required and (is_pep or final_rating == "HIGH"):
             edd_reason = (
                 "PEP status — enhanced due diligence mandatory (FATF R.12 / Art. 15, Cabinet Decision 10/2019)"
@@ -2700,20 +2449,9 @@ def recalculate_customer_risk_ratings(conn: sqlite3.Connection, company_id: str)
     return changed
 
 
-# Item 5: Mandatory Currency Transaction Reports (CTR)
-# A SAR is a judgment call — "I, a human, suspect this is criminal." A CTR
-# is not: it is a fixed, non-discretionary obligation to report any cash
-# transaction (or same-day aggregate) above a statutory threshold,
-# regardless of whether anyone thinks it's suspicious. Filing one is not
-# an accusation; NOT filing one when required is the compliance failure.
-# That's why this does not flow through aml_alerts / the OPEN -> CLOSED_SAR
-# workflow at all — there is no "investigate and decide" step for a CTR,
-# it just gets filed. It lives in its own ctr_filings table for exactly
-# that reason: mixing it into the alert queue would misrepresent it as
-# something requiring analyst judgment.
+# Item 5: mandatory CTRs — a non-discretionary obligation to report cash above a statutory threshold (unlike a SAR's judgment call), so it just gets filed into its own ctr_filings table, never the alert workflow.
 CTR_SINGLE_DAY_THRESHOLD = 40_000  # AED, deliberately distinct from the
-                                    # 6-month CASH_AGG_6M threshold — CTR is
-                                    # a same-day trigger, not a rolling window
+                                    # CTR is a same-day trigger, not the 6-month CASH_AGG_6M rolling window
 
 
 def run_ctr_threshold_filings(conn: sqlite3.Connection, as_of_date: str, company_id: str) -> int:
@@ -2732,11 +2470,7 @@ def run_ctr_threshold_filings(conn: sqlite3.Connection, as_of_date: str, company
     as_of is what makes a freshly-loaded backlog get its overdue CTRs
     filed correctly, the same way a new system catching up on historical
     data would."""
-    # A CTR is a CURRENCY transaction report — the statutory trigger is
-    # same-day physical cash, not total account throughput. Filtering on
-    # cash channels here (same NULL-tolerant predicate as the cash
-    # scenarios) stops mandatory filings being generated off wire/crypto
-    # activity that no CTR regime actually covers.
+    # A CTR triggers on same-day physical cash, not total throughput — the NULL-tolerant cash predicate stops filings off wire/crypto activity no CTR regime covers.
     rows = conn.execute(f"""
         SELECT account_id, date(transaction_date) AS tx_day,
                SUM(amount) AS day_total, GROUP_CONCAT(transaction_id) AS tx_ids,
@@ -2796,8 +2530,7 @@ def run_engine(company_id: str = auth_security.LEGACY_COMPANY_ID, as_of_date: st
     total_new = total_suppressed = 0
     executed = []
     engine_status = "COMPLETED"
-    # Task 2: start each run with a clean per-record error tally (raise_alert
-    # increments it via _note_errored_record on any swallowed per-record failure).
+    # Task 2: start each run with a clean per-record error tally (raise_alert bumps it via _note_errored_record).
     _reset_errored_records()
 
     with sqlite3.connect(DB_PATH) as conn:
@@ -2818,34 +2551,25 @@ def run_engine(company_id: str = auth_security.LEGACY_COMPANY_ID, as_of_date: st
                 log.exception("Scenario %s failed", code)
                 engine_status = "PARTIAL"
 
-        # Item 3: re-rate customers based on what actually happened to them
-        # since onboarding — see recalculate_customer_risk_ratings — using
-        # the alerts/SARs just raised this run, not a stale onboarding-time
-        # snapshot.
+        # Item 3: re-rate customers on this run's alerts/SARs (see recalculate_customer_risk_ratings), not a stale onboarding snapshot.
         try:
             recalculate_customer_risk_ratings(conn, company_id)
         except Exception:
             log.exception("Customer risk re-rating failed")
 
-        # Item 5: mandatory CTR filings (auto-filed, no judgment call) —
-        # runs after the scenario loop so it sees the same as_of_date
-        # transaction set everything else just processed.
+        # Item 5: auto-filed CTRs, run after the scenario loop so they see the same as_of_date transaction set.
         try:
             run_ctr_threshold_filings(conn, as_of, company_id)
         except Exception:
             log.exception("CTR threshold filing failed")
 
-        # Item 16: refresh SLA breach flags after every run so the
-        # dashboard/queue reflect newly-breached alerts immediately.
+        # Item 16: refresh SLA breach flags after every run so the dashboard reflects newly-breached alerts immediately.
         try:
             refresh_sla_breach_flags(conn)
         except Exception:
             log.exception("SLA breach refresh failed")
 
-        # Task 2: fold per-record failures into the run's outcome. Even if
-        # every scenario function returned cleanly, any skipped records mean
-        # this was NOT a complete pass — mark it PARTIAL so the dashboard
-        # flags it rather than showing a falsely-clean COMPLETED.
+        # Task 2: any skipped records mark the run PARTIAL (not a falsely-clean COMPLETED) even if every scenario returned cleanly.
         errored_records = get_errored_records_count()
         if errored_records > 0 and engine_status == "COMPLETED":
             engine_status = "PARTIAL"
@@ -2862,20 +2586,12 @@ def run_engine(company_id: str = auth_security.LEGACY_COMPANY_ID, as_of_date: st
             log.warning("Engine run %s completed as PARTIAL: %d record(s) errored and were skipped.",
                         run_id, errored_records)
 
-        # NOTE: a workflow self-test block used to run here on every engine
-        # pass. It called transition_alert() against a live alert
-        # (OPEN -> UNDER_REVIEW, attempted CLOSED_SAR with a mock goAML
-        # reference), which mutated real compliance state and wrote an
-        # append-only str_decisions audit row attributed to a phantom
-        # "ANALYST_01" — every time an MLRO clicked "Run pipeline". Workflow
-        # transitions are covered by the test suite against a throwaway DB;
-        # the production pipeline must not touch alert state. Removed.
+        # NOTE: a workflow self-test that mutated live alert state on every pipeline run was removed — transitions are covered by the test suite against a throwaway DB.
 
 
 if __name__ == "__main__":
     import sys
-    # See generator.py — load .env for direct terminal runs so decryption in
-    # the screening engine uses the same PII key the web app encrypted with.
+    # Load .env for direct terminal runs so screening decryption uses the same PII key the web app encrypted with (see generator.py).
     try:
         from dotenv import load_dotenv
         load_dotenv()

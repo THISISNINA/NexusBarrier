@@ -1,28 +1,4 @@
-"""
-aml_service.py — Business Logic / Service Layer
-Sits between app.py (routing/UI) and aml_engine.py (detection + compliance
-state machine). This is where ALL database access for the dashboard lives.
-
-Layering contract:
-    aml_engine.py    -> detection scenarios + AMLWorkflowManager (compliance
-                         rules, the only thing allowed to decide or write
-                         alert status)
-    alert_filter.py  -> suppression policy (read-only signal, no writes)
-    aml_service.py    -> THIS FILE. Every query and every workflow call the
-                         UI needs, in one place. Owns connection lifecycle.
-    app.py            -> routing only. Calls AMLService methods and renders
-                         templates / flashes errors. Contains no SQL and no
-                         workflow-transition calls of its own.
-
-Every method that changes alert state (claim_alert, close_alert,
-escalate_alert) does so by calling
-AMLWorkflowManager.transition_alert() and nothing else — this file does
-not perform direct UPDATE statements against aml_alerts.status or
-str_decisions.workflow_status anywhere. WorkflowError is allowed to
-propagate up to app.py uncaught; app.py is responsible for catching it
-and turning it into a flash() message, since that's a UI concern, not a
-service concern.
-"""
+"""aml_service.py — service layer between app.py (routing only, no SQL) and aml_engine.py (detection + AMLWorkflowManager); owns all dashboard DB access and connection lifecycle, routes every alert-state change through transition_alert(), and lets WorkflowError propagate to app.py."""
 import sqlite3
 import uuid
 from datetime import datetime, timezone
@@ -74,15 +50,7 @@ class AMLService:
         finally:
             conn.close()
 
-    # Child-before-parent, so every DROP below is safe under
-    # PRAGMA foreign_keys=ON (str_decisions/aml_alert_transactions/
-    # case_alert_map/aml_alert_views all reference aml_alerts; case_alert_map
-    # also references cases). ingestion_log is deliberately excluded — it
-    # has no company_id (it's aml_loader's own file-processing log, shared
-    # across every tenant, not per-company demo data) so it is never touched.
-    # aml_alert_transactions also has no company_id of its own (a pure
-    # alert<->transaction join, scoped via its parents) — handled as a
-    # special case in reset_demo_data below, filtered through aml_alerts.
+    # Child-before-parent so DROPs are safe under foreign_keys=ON; ingestion_log is excluded (global, no company_id) and aml_alert_transactions is special-cased (no company_id, scoped via aml_alerts).
     _RESET_TABLES_CHILD_FIRST = (
         "aml_alert_transactions", "aml_alert_views", "risk_scores",
         "case_alert_map", "cases", "str_decisions", "aml_alerts",
@@ -116,11 +84,7 @@ class AMLService:
         try:
             for table in AMLService._RESET_TABLES_CHILD_FIRST:
                 if table == "aml_alert_transactions":
-                    # The one table here with no company_id column of its
-                    # own (see §1's table list — it's a pure alert<->
-                    # transaction join, scoped via its parents). Filtered
-                    # through aml_alerts instead, which still exists at
-                    # this point since nothing has been dropped yet.
+                    # No company_id of its own — filter through aml_alerts, which still exists (nothing dropped yet).
                     conn.execute(
                         f"CREATE TEMP TABLE _keep_{table} AS SELECT * FROM {table} "
                         "WHERE alert_id IN (SELECT alert_id FROM aml_alerts WHERE company_id != ?)",
@@ -135,12 +99,9 @@ class AMLService:
                 conn.execute(f"DROP TABLE {table}")
             conn.commit()
 
-            # Recreates every dropped table (with its triggers) plus
-            # re-seeds aml_scenarios / rule_versions idempotently.
+            # Recreates every dropped table (with triggers) and re-seeds aml_scenarios/rule_versions idempotently.
             aml_engine.init_schema(conn)
-            # transactions is aml_loader's table, not part of aml_engine's
-            # schema — recreate that too (ingestion_log also lives here,
-            # but it was never dropped above, so this only refills transactions).
+            # transactions is aml_loader's table, not aml_engine's — recreate it too (ingestion_log was never dropped).
             aml_loader.init_db(conn)
 
             # Parent-before-child on the way back in, for the same FK reasons.
@@ -349,8 +310,7 @@ class AMLService:
                 WHERE at.alert_id = ? AND a.company_id = ?
                 ORDER BY t.transaction_date DESC
             """, (alert_id, company_id)).fetchall()
-            # Task 3: counterparty_wallet_address is encrypted at rest — decrypt
-            # for the alert-detail transactions table (alert_detail.html).
+            # Task 3: decrypt counterparty_wallet_address (encrypted at rest) for the alert-detail transactions table.
             txns = [dict(r) for r in rows]
             for t in txns:
                 if "counterparty_wallet_address" in t:
@@ -369,18 +329,13 @@ class AMLService:
             if row is None:
                 return None
             profile = dict(row)
-            # Task 3: this is THE authorized profile fetch for a logged-in
-            # session — decrypt the encrypted PII columns (customer_name,
-            # nationality, date_of_birth) so the customer-detail page and every
-            # downstream computation (initial_risk, CRR reason) see cleartext.
+            # Task 3: the authorized profile fetch — decrypt the PII columns (customer_name/nationality/date_of_birth) so the page and downstream computations see cleartext.
             pii_crypto.decrypt_profile_fields(profile)
             try:
                 profile["watchlist_entry"] = aml_engine.check_internal_watchlist(conn, account_id, company_id)
             except Exception:
                 profile["watchlist_entry"] = None
-            # Initial (onboarding) risk rating — computed on read, never
-            # persisted: it's a pure function of the profile row, so storing
-            # it would just be a cache that can drift from its inputs.
+            # Initial risk rating — computed on read, never persisted (pure function of the profile row; storing it would just be a driftable cache).
             profile["initial_risk"] = kyc_risk.calculate_initial_risk_rating(profile)
             profile["risk_rating_reason"] = AMLService._resolve_crr_reason(conn, profile)
             return profile
@@ -579,12 +534,7 @@ class AMLService:
         finally:
             conn.close()
 
-    # Closure reason codes that resolve to CLOSED_SAR (a SAR was filed) vs
-    # CLOSED_NO_ACTION (no SAR). This mapping is a UI/orchestration concern —
-    # "which closure reasons imply a SAR was filed" — not a compliance rule
-    # itself. The actual enforcement (narrative required, code must be valid,
-    # goAML reference required specifically for CLOSED_SAR) lives entirely in
-    # AMLWorkflowManager.transition_alert and is NOT duplicated here.
+    # UI/orchestration mapping of closure reason codes to CLOSED_SAR vs CLOSED_NO_ACTION; actual enforcement lives in AMLWorkflowManager.transition_alert, not here.
     SAR_CLOSURE_CODES = ("STRUCTURING_CONFIRMED", "HIGH_RISK_CONFIRMED")
 
     @staticmethod
@@ -914,8 +864,7 @@ class AMLService:
                 FROM customer_profiles cp
                 WHERE cp.account_category = 'CORRESPONDENT' AND cp.company_id = ?
             """, (company_id,)).fetchall()
-            # Task 3: decrypt customer_name and sort by the cleartext value —
-            # the SQL ORDER BY would only sort ciphertext.
+            # Task 3: decrypt customer_name and sort in Python — a SQL ORDER BY would only sort ciphertext.
             accounts = [dict(r) for r in rows]
             for a in accounts:
                 a["customer_name"] = pii_crypto.decrypt_pii(a.get("customer_name"))
@@ -964,9 +913,7 @@ class AMLService:
                 ORDER BY t.interdicted_at DESC
                 LIMIT ?
             """, (company_id, limit)).fetchall()
-            # Task 3: customer_name is encrypted at rest. The wire-message
-            # ordering_customer_name / beneficiary_name fields are NOT in the
-            # encrypted set (they're screening inputs, kept cleartext).
+            # Task 3: customer_name is encrypted at rest; wire-message ordering_customer_name/beneficiary_name stay cleartext (screening inputs).
             logs = [dict(r) for r in rows]
             for entry in logs:
                 entry["customer_name"] = pii_crypto.decrypt_pii(entry.get("customer_name"))
@@ -1082,8 +1029,7 @@ class AMLService:
                     if not any(x["account_id"] == r[0] for x in shared_alert_accounts):
                         shared_alert_accounts.append(entry)
 
-            # Task 3: every linked account's customer_name came straight off an
-            # encrypted column — decrypt for display. Wallets aren't surfaced here.
+            # Task 3: decrypt each linked account's customer_name for display (wallets aren't surfaced here).
             for entry in links:
                 entry["customer_name"] = pii_crypto.decrypt_pii(entry.get("customer_name"))
             for entry in shared_alert_accounts:
@@ -1308,11 +1254,7 @@ class AMLService:
         finally:
             conn.close()
 
-    # Screening hits (sanctions, PEP, internal watchlist) no longer have a
-    # standalone admin page — they route through SCN_SANCTION_MATCH /
-    # SCN_PEP_MATCH / SCN_INTERNAL_WATCHLIST straight into the Open Queue
-    # like every other scenario (see aml_engine.py). get_screening_lists()
-    # was removed along with screening.html and the /screening route.
+    # Screening hits route through SCN_SANCTION_MATCH/SCN_PEP_MATCH/SCN_INTERNAL_WATCHLIST into the Open Queue like any scenario; the standalone screening page/route was removed.
 
     # Item 9: Customers page
 
@@ -1323,14 +1265,7 @@ class AMLService:
         account_id (case-insensitive substring)."""
         conn = AMLService._connect()
         try:
-            # Task 3: customer_name is encrypted at rest, so a SQL
-            # `customer_name LIKE ?` search and `ORDER BY customer_name` no
-            # longer work against ciphertext. Filters that DON'T touch encrypted
-            # columns (company scope, EDD flag) stay in SQL; the name search and
-            # alphabetical sort are done in Python after decryption. account_id
-            # is not encrypted, so an account_id search could stay in SQL — but
-            # it's folded into the same Python pass so one search box still
-            # matches either field with identical semantics.
+            # Task 3: name LIKE/ORDER BY can't run against encrypted customer_name — non-encrypted filters stay in SQL; name/account_id search and sort are done in Python after decryption.
             sql = """
                 SELECT cp.*,
                        (SELECT COUNT(*) FROM aml_alerts a
@@ -1342,8 +1277,7 @@ class AMLService:
             params: list = [company_id]
             if edd_only:
                 sql += " AND cp.edd_required = 1"
-            # Keep HIGH-risk customers grouped first at the SQL layer; the
-            # within-group alphabetical order is re-applied in Python below.
+            # Keep HIGH-risk grouped first in SQL; within-group alphabetical order is re-applied in Python below.
             sql += " ORDER BY cp.risk_rating = 'HIGH' DESC"
             rows = conn.execute(sql, params).fetchall()
             customers = [dict(r) for r in rows]
@@ -1359,8 +1293,7 @@ class AMLService:
                     or needle in (c.get("account_id") or "").lower()
                 ]
 
-            # HIGH-risk first, then case-insensitive name — a stable sort on the
-            # decrypted name preserves the SQL-level HIGH-first grouping.
+            # HIGH-risk first, then case-insensitive name — a stable sort preserves the SQL-level HIGH-first grouping.
             customers.sort(key=lambda c: (c.get("customer_name") or "").lower())
             customers.sort(key=lambda c: c.get("risk_rating") != "HIGH")
             return customers
@@ -1429,9 +1362,7 @@ class AMLService:
                 LIMIT ?
             """, params + [limit]).fetchall()
 
-            # Summary stats for the header — a supervisor needs to see
-            # "how many were filed and what's the total exposure" not just
-            # a raw table. All stats respect the same filters.
+            # Header summary stats (count filed + total exposure), respecting the same filters as the table.
             stats_row = conn.execute(f"""
                 SELECT COUNT(*) AS total_filings,
                        COALESCE(SUM(c.total_amount), 0) AS total_amount_reported,
@@ -1452,8 +1383,7 @@ class AMLService:
                 LIMIT 1
             """, params).fetchone()
 
-            # Task 3: customer_name on every filing row + the top-account
-            # summary came off the encrypted column — decrypt for display.
+            # Task 3: decrypt customer_name on each filing row and the top-account summary for display.
             filings = [dict(r) for r in rows]
             for f in filings:
                 f["customer_name"] = pii_crypto.decrypt_pii(f.get("customer_name"))
@@ -1577,10 +1507,7 @@ class AMLService:
             closed_count = disposition["CLOSED_SAR"] + disposition["CLOSED_NO_ACTION"]
             sla_compliance_pct = round((within_sla / closed_count) * 100, 1) if closed_count else None
 
-            # CTR mandatory reporting stats for this period — filed
-            # automatically by the engine, but the regulatory report
-            # still needs to surface them so a supervisor can confirm
-            # the obligation was met and the regulator can see the numbers.
+            # CTR mandatory-reporting stats for the period — engine-filed, surfaced here so a supervisor/regulator can confirm the obligation was met.
             ctr_row = conn.execute("""
                 SELECT COUNT(*) AS total_filed,
                        COALESCE(SUM(total_amount), 0) AS total_amount,

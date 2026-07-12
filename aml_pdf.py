@@ -1,13 +1,4 @@
-"""
-aml_pdf.py — SLA Report PDF Export
-Renders the same data aml_reports.build_sla_report() produces as a
-formatted PDF, for the "Export PDF" button on /reports. Deliberately
-takes the report dict as input rather than a db connection — this module
-has no SQL of its own and stays a pure rendering layer, consistent with
-aml_service.py owning all DB access and aml_reports.py owning all
-aggregate queries. If build_sla_report()'s shape ever changes, only this
-file's render_sla_report_pdf() needs to follow.
-"""
+"""aml_pdf.py — pure rendering layer that turns aml_reports.build_sla_report()'s dict into the /reports "Export PDF" bytes; takes the report dict (no SQL of its own)."""
 import io
 from datetime import datetime, timezone
 

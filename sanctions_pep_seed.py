@@ -1,28 +1,4 @@
-"""
-sanctions_pep_seed.py
-Creates and seeds the separate screening.db database with:
-  - sanctions_list   : 50+ fictional sanctioned individuals and entities
-  - pep_list         : 30+ fictional politically exposed persons
-  - internal_watchlist: 15+ fictional internally flagged customers
-
-This file is INTENTIONALLY separate from aml_monitoring.db.
-In real life, sanctions and PEP lists are maintained by external regulators
-(OFAC, UN, EU, CBUAE) and updated independently of the bank's own systems.
-
-Run this BEFORE running generator.py / aml_loader.py / aml_engine.py:
-    python sanctions_pep_seed.py [company_id]
-
-sanctions_list and pep_list are global regulator data. internal_watchlist
-is each bank's own list (tenant-scoped by company_id), so its demo entries
-are seeded per company — pass the workspace's company_id or the entries
-land under the legacy demo company and SCN_INTERNAL_WATCHLIST never fires
-for real tenants.
-
-Safe to re-run — checks COUNT(*) before inserting (idempotent).
-
-NOTE: All names, countries, and entities are completely fictional.
-      No real persons, companies, or countries are referenced.
-"""
+"""sanctions_pep_seed.py — creates/seeds the separate screening.db with all-fictional sanctions_list and pep_list (global regulator data) and internal_watchlist (tenant-scoped by company_id); idempotent, run before generator.py/aml_loader.py/aml_engine.py as `python sanctions_pep_seed.py [company_id]`."""
 
 import os
 import sqlite3
@@ -79,9 +55,7 @@ def create_tables(conn: sqlite3.Connection) -> None:
             notes TEXT
         );
     """)
-    # Tenant scoping for internal_watchlist — same additive migration
-    # aml_engine._get_screening_conn applies, repeated here because this
-    # script may run against a brand-new screening.db first.
+    # Tenant scoping for internal_watchlist — same additive migration as aml_engine._get_screening_conn, repeated for a fresh screening.db.
     try:
         conn.execute(
             "ALTER TABLE internal_watchlist ADD COLUMN company_id TEXT NOT NULL "

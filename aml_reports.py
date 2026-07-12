@@ -1,28 +1,4 @@
-"""
-aml_reports.py — SLA & Reporting Layer
-Read-only aggregate queries over aml_alerts / str_decisions for the
-/reports dashboard. No workflow logic, no writes — this module only ever
-runs SELECT statements.
-
-Metrics:
-    - Average time to review   (created_at -> reviewed_at, str_decisions)
-    - Average time to close    (created_at -> closed_at, str_decisions)
-    - Alerts by scenario       (count + open/closed breakdown)
-    - False positive rate      (closures with closure_reason_code = FALSE_POSITIVE
-                                 as a % of all closed alerts)
-    - SAR rate                 (CLOSED_SAR closures as a % of all closed alerts)
-
-Timing note: created_at / reviewed_at / closed_at all live on str_decisions,
-not aml_alerts — each row in str_decisions is a snapshot of those three
-timestamps as of that transition (see AMLWorkflowManager.transition_alert,
-which carries created_at/reviewed_at forward and only sets closed_at on a
-terminal transition). So the timing queries here read the LATEST decision
-row per alert_id, which has the final, complete picture of all three
-timestamps for that alert.
-
-Every function below takes company_id and scopes its query to it — these
-are per-company reporting metrics, not cross-tenant aggregates.
-"""
+"""aml_reports.py — read-only, per-company SLA/reporting aggregates (review/close time, scenario volume, false-positive and SAR rates) over the LATEST str_decisions row per alert; SELECT only, every function company_id-scoped."""
 import sqlite3
 
 

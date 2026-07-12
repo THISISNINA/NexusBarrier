@@ -1,24 +1,4 @@
-"""
-auth_security.py — Hardened auth + structural tenant isolation.
-
-Extends auth_reference.py with the five things that were missing:
-  1. Brute-force lockout (DB-backed, survives restarts — in-memory
-     lockout tracking would reset every deploy, defeating the point).
-  2. CSRF protection on both forms.
-  3. JWT delivered via HttpOnly, Secure, SameSite cookie — never
-     localStorage, which is readable by any XSS bug on the page.
-  4. Revocable sessions via a refresh-token table — a bare JWT can't be
-     revoked before it expires; this makes "log this session out right
-     now" actually possible.
-  5. Structural tenant isolation: TenantScopedDB below is the ONLY
-     sanctioned way route code touches tenant data. It takes company_id
-     exactly once, at construction, from the verified token — never as
-     a per-call argument — so there is no method signature that could
-     accept a forged/tampered company_id from a request. Contrast this
-     with "remember to add WHERE company_id = ? to every query" — that
-     approach fails the moment one developer forgets one query, which
-     is the actual root cause of most real-world cross-tenant leaks.
-"""
+"""auth_security.py — hardened auth (DB-backed brute-force lockout, CSRF, HttpOnly/Secure/SameSite JWT cookies, revocable refresh-token sessions) plus structural tenant isolation via TenantScopedDB, which takes company_id once at construction from the verified token so no method can accept a forged company_id."""
 import hashlib
 import os
 import re
@@ -34,11 +14,7 @@ import jwt
 from flask import g, request, redirect, url_for, session, abort, flash
 from werkzeug.security import generate_password_hash, check_password_hash
 
-# From env when deployed; otherwise a fresh random key per process. The
-# fallback means a restart signs everyone out (tokens no longer verify) —
-# an acceptable demo trade-off, and strictly safer than every clone of
-# this repo sharing one hardcoded signing key an attacker can read on
-# GitHub and use to forge any user's (or the platform admin's) token.
+# From env when deployed, else a fresh random key per process (restart signs everyone out — safer than a shared hardcoded key).
 JWT_SECRET = os.environ.get("JWT_SECRET") or secrets.token_hex(32)
 JWT_ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRY_MINUTES = 15     # short-lived — this is what limits blast radius if one leaks
@@ -47,39 +23,18 @@ REFRESH_TOKEN_EXPIRY_DAYS = 7
 MAX_FAILED_ATTEMPTS = 5
 LOCKOUT_WINDOW_MINUTES = 15
 
-# The three tenant-side roles. TENANT_ADMIN is the workspace root the
-# Super Admin creates at provisioning time — it owns team management
-# (approvals, role changes, access removal) for its company_id and
-# nothing outside it. L1_ANALYST / MLRO keep their existing meanings in
-# the alert workflow (aml_engine still restricts ESCALATED/DRAFT_SAR
-# transitions to MLRO specifically — admin of the workspace does not
-# imply SAR sign-off authority).
+# The three tenant-side roles. TENANT_ADMIN owns team management for its company_id only; MLRO still holds ESCALATED/DRAFT_SAR authority (workspace admin ≠ SAR sign-off).
 TENANT_ROLES = ("L1_ANALYST", "MLRO", "TENANT_ADMIN")
 
 SIGNUP_RATE_LIMIT_MAX_ATTEMPTS = 5   # per IP, counts successes AND failures — unlike login lockout
 SIGNUP_RATE_LIMIT_WINDOW_MINUTES = 60
 
-# Tenant that all pre-multi-tenancy demo data (every row that existed
-# before company_id columns did) is backfilled onto during migration, so
-# that data has a real, queryable owning company instead of an orphaned
-# or NULL company_id. Not a "real" customer — just where history lands.
+# Tenant that all pre-multi-tenancy demo data is backfilled onto during migration, so history has a real owning company (not a real customer).
 LEGACY_COMPANY_ID = "legacy-demo"
 
 PLATFORM_ACCESS_TOKEN_EXPIRY_MINUTES = 30
 
-# Platform Super Admin — a genuinely separate identity, not a role value
-# "Zero access to compliance data" is a structural claim, not a policy one —
-# it has to be true even if some future route handler gets sloppy. Two
-# things make it true here:
-#   1. platform_admins lives in its OWN database file (platform.db), not
-#      aml_monitoring.db — the same "mirrors real-world separation" pattern
-#      aml_engine.py already uses for screening.db. A platform-admin session
-#      literally cannot JOIN against aml_alerts/transactions/customer_profiles
-#      by accident, because those tables aren't in this connection at all.
-#   2. The platform-admin JWT has a completely different shape — no
-#      company_id claim anywhere in it — so TenantScopedDB-style tenant code
-#      structurally cannot be invoked with a platform-admin token even if
-#      someone tried; there's no company_id to read.
+# Platform Super Admin — a separate identity, not a role value. Zero access to compliance data is structural: platform_admins lives in its own platform.db (no compliance tables to JOIN), and the platform JWT carries no company_id claim.
 _BASE_DIR = Path(__file__).resolve().parent
 PLATFORM_DB_PATH = _BASE_DIR / "data" / "database" / "platform.db"
 
@@ -163,18 +118,7 @@ def record_platform_attempt(conn, username: str, success: bool, ip_address: Opti
     conn.commit()
 
 
-# Base identity tables (every other table's company_id points here)
-# companies.status: ACTIVE / SUSPENDED — Super Admin's tenant-licensing
-# control. A suspended company blocks login and signup for every one of
-# its users regardless of their own individual status.
-# users.status: ACTIVE / REJECTED / SUSPENDED — the ongoing lifecycle
-# state a Tenant Admin (MLRO) puts a specific user into, independent of
-# is_approved (see below).
-# users.is_approved: the onboarding gate specifically. A user can be
-# is_approved=0 (never yet reviewed) or is_approved=1 (reviewed and let
-# in) — status is what happens to them AFTER that initial review, so the
-# two aren't collapsed into one field: "rejected" and "never reviewed"
-# are different states an approval-queue UI needs to tell apart.
+# Base identity tables. companies.status (ACTIVE/SUSPENDED) is tenant-licensing; users.status (ACTIVE/REJECTED/SUSPENDED) is post-review lifecycle, kept separate from is_approved (the onboarding gate) so "rejected" and "never reviewed" stay distinct.
 BASE_AUTH_SCHEMA = """
 CREATE TABLE IF NOT EXISTS companies (
     company_id TEXT PRIMARY KEY,
@@ -227,13 +171,10 @@ def _apply_auth_schema_migrations(conn) -> None:
     _add_column_if_missing(conn, "companies", "status", "TEXT NOT NULL DEFAULT 'ACTIVE'")
     _add_column_if_missing(conn, "companies", "contact_email", "TEXT")
     _add_column_if_missing(conn, "users", "is_approved", "INTEGER NOT NULL DEFAULT 1")
-    # Approval audit trail: which Tenant Admin let this user in, and when.
-    # NULL means either "not yet reviewed" or "grandfathered by migration".
+    # Approval audit trail (which Tenant Admin let this user in, and when); NULL means not-yet-reviewed or grandfathered by migration.
     _add_column_if_missing(conn, "users", "approved_by", "TEXT")
     _add_column_if_missing(conn, "users", "approved_at", "TEXT")
-    # Onboarding identity profile: full_name is the legal name for audit trails,
-    # nickname is the casual display name. requested_role is display-only for the
-    # approval queue and is never applied to the role column automatically.
+    # Onboarding identity profile: full_name (legal), nickname (display), and display-only requested_role never auto-applied to role.
     _add_column_if_missing(conn, "users", "full_name", "TEXT")
     _add_column_if_missing(conn, "users", "nickname", "TEXT")
     _add_column_if_missing(conn, "users", "requested_role", "TEXT")
@@ -286,13 +227,7 @@ def ensure_auth_schema(conn) -> None:
     conn.commit()
 
 
-# Workspace provisioning (Super Admin only)
-# These two are the ONLY write paths that create a company or a
-# TENANT_ADMIN. Public signup can do neither: it requires an existing
-# company_id and always produces an unapproved L1_ANALYST (see app.py's
-# /signup). That asymmetry is the whole onboarding model — workspaces
-# come into existence at the platform layer, people join them at the
-# tenant layer.
+# Workspace provisioning (Super Admin only): the only write paths that create a company or TENANT_ADMIN — public signup only makes unapproved L1_ANALYSTs in an existing company.
 
 def _slugify(name: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
@@ -380,18 +315,7 @@ def record_attempt(conn, company_id: str, username: str, success: bool, ip_addre
     conn.commit()
 
 
-# Signup rate limiting
-# Separate from login lockout, and keyed differently: login lockout keys
-# on (company_id, username) because that identity already exists and
-# only failures count (a legitimate user logging in successfully many
-# times should never get locked out of their own account). Signup has
-# no existing identity to key on — that's literally what's being
-# created — so this keys on IP address instead, and counts BOTH
-# successes and failures, since 5 accounts created from one IP in an
-# hour is suspicious regardless of whether each individual signup
-# "succeeded". Bounds both spam account creation and using repeated
-# signup attempts to enumerate which (company_id, username) pairs
-# already exist.
+# Signup rate limiting — keyed on IP (no identity exists yet) and counts BOTH successes and failures, bounding spam account creation and username-enumeration.
 
 def is_signup_rate_limited(conn, ip_address: str) -> bool:
     cutoff = (datetime.now(timezone.utc) - timedelta(minutes=SIGNUP_RATE_LIMIT_WINDOW_MINUTES)).isoformat()
@@ -573,25 +497,10 @@ def set_auth_cookies(response, tokens: Dict[str, str]):
     )
     return response
 
-# Correction from the previous version of this file: path="/refresh" only
-# was wrong for this app's actual usage pattern. That scoping meant the
-# browser would only ever send the refresh cookie to a dedicated
-# /refresh endpoint — but transparent, automatic refresh on ANY page
-# request (so a user's session doesn't die mid-read every 15 minutes)
-# needs the cookie present on every request. HttpOnly already stops
-# client-side JS from reading this cookie regardless of path, which was
-# the actual protection that mattered; the path restriction wasn't
-# adding real security, just breaking the auto-refresh flow.
+# path="/" (not "/refresh"): transparent auto-refresh on any request needs the cookie everywhere; HttpOnly, not path scoping, is the real protection.
 
 
-# Platform Super Admin tokens
-# Deliberately simpler than the tenant token pair above: no refresh token,
-# no rotation. Platform-admin usage is infrequent (provisioning a new
-# tenant, suspending one) — re-logging in every 30 minutes is a non-issue,
-# and not building a second refresh-token table keeps this identity system
-# minimal, which matters more here than convenience: less code touching
-# the one credential that can provision/suspend tenants, the easier it is
-# to audit.
+# Platform Super Admin tokens — deliberately simpler than the tenant pair (no refresh/rotation), keeping the provision/suspend credential's code minimal and auditable.
 
 def issue_platform_token(admin_id: str, username: str) -> str:
     now = datetime.now(timezone.utc)
@@ -608,12 +517,7 @@ def verify_platform_token(token: str) -> Optional[Dict[str, Any]]:
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
     except jwt.PyJWTError:
         return None
-    # Not just "does this JWT verify" — it must be a platform-scoped token
-    # specifically. Without this check, a tenant user's own valid
-    # access_token (different cookie, but the same secret/algorithm) would
-    # decode successfully here too, and this function would hand back
-    # whatever fields happen to overlap (sub, username) as if they were a
-    # platform admin's.
+    # Must be platform-scoped, not merely a valid JWT — else a tenant access_token (same secret) would decode and pass here too.
     if payload.get("scope") != "platform":
         return None
     return payload
@@ -757,12 +661,7 @@ class TenantScopedDB:
             (self._company_id, alert_id),
         ).fetchone()
 
-    # Team management (Tenant Admin surface)
-    # Same structural guarantee as the alert methods above: user_id alone
-    # is never enough to touch a row — every statement also filters on
-    # self._company_id, so a Tenant Admin who guesses/enumerates another
-    # workspace's user_id gets zero rows affected, not a cross-tenant
-    # approval or deletion.
+    # Team management (Tenant Admin surface): every statement also filters on self._company_id, so a guessed cross-tenant user_id affects zero rows.
 
     def pending_access_requests(self):
         """The Access Requests queue: signed up, never yet reviewed.
@@ -850,61 +749,4 @@ class TenantScopedDB:
         ).fetchone()[0]
 
 
-# Route integration sketch (not runnable as-is — shows how the pieces
-# above compose in app.py):
-#
-# app.jinja_env.globals["csrf_token"] = get_csrf_token
-# # ^ required for {{ csrf_token() }} in login.html/signup.html to resolve
-# # at all — without this line those templates throw a Jinja UndefinedError.
-#
-# @app.route("/login", methods=["POST"])
-# def login():
-#     company_id = request.form["company_id"]
-#     username = request.form["username"]
-#     password = request.form["password"]
-#
-#     if not verify_csrf(request.form.get("csrf_token")):
-#         abort(400)
-#     if is_locked_out(conn, company_id, username):
-#         flash("Too many failed attempts. Try again in 15 minutes.", "error")
-#         return redirect(url_for("login"))
-#
-#     row = conn.execute("SELECT * FROM users WHERE company_id=? AND username=?",
-#                         (company_id, username)).fetchone()
-#     ok = row and row["status"] == "ACTIVE" and check_password_hash(row["password_hash"], password)
-#     record_attempt(conn, company_id, username, success=bool(ok), ip_address=request.remote_addr)
-#     if not ok:
-#         flash("Invalid credentials.", "error")   # never reveal WHICH part was wrong
-#         return redirect(url_for("login"))
-#
-#     tokens = issue_tokens(conn, company_id, row["user_id"], row["role"], row["username"])
-#     resp = redirect(url_for("dashboard"))
-#     return set_auth_cookies(resp, tokens)
-#
-# @app.route("/signup", methods=["POST"])
-# def signup():
-#     ip = request.remote_addr
-#     if not verify_csrf(request.form.get("csrf_token")):
-#         abort(400)
-#     if is_signup_rate_limited(conn, ip):
-#         flash("Too many signup attempts from this network. Try again later.", "error")
-#         return redirect(url_for("signup"))
-#     record_signup_attempt(conn, ip)   # count it regardless of outcome below
-#     ... validate + create the user (see auth_reference.py's signup()) ...
-#
-# @app.route("/refresh", methods=["POST"])
-# def refresh():
-#     raw = request.cookies.get("refresh_token")
-#     if not raw:
-#         return redirect(url_for("login"))
-#     tokens = refresh_access_token(conn, raw)
-#     if tokens is None:
-#         return redirect(url_for("login"))   # expired, revoked, or account deactivated
-#     resp = redirect(request.referrer or url_for("dashboard"))
-#     return set_auth_cookies(resp, tokens)
-#
-# @app.route("/alerts")
-# @require_auth
-# def alerts():
-#     db = TenantScopedDB(get_db_conn(), g.user["company_id"])
-#     return render_template("alerts.html", alerts=db.get_alerts())
+# Route integration sketch removed — see app.py for the actual /login, /signup, /refresh, and @require_auth wiring.

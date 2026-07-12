@@ -1,26 +1,4 @@
-"""
-generator.py — Synthetic Data Generator
-Owns THREE things, per the spec's execution order (item 3 must land before
-everything else that depends on customer identity):
-
-  1. customer_profiles seed data — names, account_category (RETAIL /
-     CORPORATE / CORRESPONDENT), UBO names, SWIFT BIC, and initial CRR
-     (risk_rating / risk_rating_date / risk_rating_reason). (Items 3, 9)
-  2. transactions CSV — unchanged core fields plus counterparty_name,
-     reference, and (CORRESPONDENT-only) ordering_customer_name /
-     beneficiary_name / originating_bank_bic. (Item 12)
-  3. Deliberate screening-list overlap concentrated on the four screening
-     PERSONA accounts (exact sanctions/PEP/watchlist names from
-     sanctions_pep_seed.py) so the name-match scenarios fire exactly once
-     each. All BACKGROUND retail/UBO names are filtered through the
-     engine's own matcher (_screen_clean) to be screening-silent — the
-     practice queue stays at ~one alert per persona.
-
-aml_engine.py no longer seeds customer_profiles from transaction account
-IDs after the fact (seed_profiles_from_existing_data is now a no-op stub
-kept only for backwards compatibility) — this file is the single source
-of truth for who a customer is, run BEFORE aml_loader.py / aml_engine.py.
-"""
+"""generator.py — synthetic data generator (run before aml_loader.py/aml_engine.py) and single source of truth for customer identity: seeds customer_profiles + transactions CSV and concentrates screening-list overlap on four persona accounts, keeping background names screening-clean so the queue stays at ~one alert per persona."""
 import csv
 import random
 import sqlite3
@@ -42,12 +20,7 @@ SCREENING_DB_PATH = Path("data/database/screening.db")
 
 N_ACCOUNTS = 220  # spec requires "at least 200"
 
-# Random background transactions on top of the persona set. Kept at 0 for a
-# minimal practice dataset: the persona accounts alone (~29 transactions)
-# cover all 12 detection scenarios at roughly one alert each. Raise this
-# (e.g. to 5_000) for a noisy, realistic-volume demo — background amounts
-# and countries are benign-only either way (see make_transaction), so extra
-# volume fills the dashboards without flooding the alert queue.
+# Random benign background transactions on top of the personas; kept at 0 for a minimal dataset — raise (e.g. 5_000) for realistic volume without adding alerts.
 N_BACKGROUND_TX = 0
 
 _RETAIL_NAMES = [
@@ -99,23 +72,14 @@ _EMPLOYERS = ["Emirates Group", "DP World", "Etisalat", "ADNOC Distribution", "M
 
 _CLEAN_WIRE_POOL: list | None = None
 
-# Expanded KYC identity fields (inputs to kyc_risk scoring)
-# Deterministic by account index, like the jurisdiction_flag cadence below —
-# a demo reset must reproduce byte-identical profiles.
-#
-# Retail nationality mix skews AE/expat to mirror a UAE retail book; the
-# occasional grey-list nationality (indexes that also carry the
-# jurisdiction_flag) lines up with their "high-risk jurisdiction at
-# onboarding" risk_rating_reason so the KYC score agrees with the CRR story.
+# Expanded KYC identity fields (inputs to kyc_risk), deterministic by account index; retail nationality skews AE/expat with occasional grey-list entries aligned to the jurisdiction_flag cadence.
 _RETAIL_NATIONALITY_POOL = [
     "AE", "IN", "AE", "PK", "GB", "AE", "PH", "EG", "AE", "JO",
     "FR", "CN", "AE", "NG", "RU", "AE", "BR", "KR", "AE", "MA",
 ]
 _HIGH_RISK_NATIONALITY_POOL = ["IR", "SY", "MM", "YE"]
 
-# Corporate country of incorporation — mostly onshore UAE, with the
-# jurisdiction-flagged cadence (i % 9 == 0) incorporated offshore instead,
-# matching their onboarding risk reason.
+# Corporate country of incorporation — mostly onshore UAE, jurisdiction-flagged cadence (i % 9 == 0) offshore to match its onboarding risk reason.
 _OFFSHORE_INCORPORATION_POOL = ["KY", "PA", "VG", "MT"]
 
 # Fictional correspondent banks — country of the BIC's home market.
@@ -159,11 +123,7 @@ def _normalize(name: str) -> str:
 
 
 def make_transaction(tx_date, account_id=None):
-    # Background transactions are deliberately BENIGN-only: everyday amounts
-    # capped below the 8,500 structuring band, NORMAL countries only, no
-    # high-value outliers. Suspicious patterns come exclusively from the
-    # persona accounts, so raising N_BACKGROUND_TX adds dashboard volume
-    # without adding alerts.
+    # Background transactions are BENIGN-only (amounts below the 8,500 band, NORMAL countries, no outliers); suspicious patterns come only from personas.
     amount = min(round(random.lognormvariate(6.5, 1.2), 2), 8_000)
     country = random.choice(NORMAL)
 
@@ -237,9 +197,7 @@ def enrich_with_counterparty_fields(tx: dict, account_category: str) -> dict:
         tx["reference"] = tx.get("reference") or "CRYPTO EXCHANGE"
     else:
         if account_category == "CORRESPONDENT":
-            # Screening-clean pool only — the engine screens these two wire
-            # fields per transaction, so a list name here would raise a
-            # sanction alert per wire once background volume is enabled.
+            # Screening-clean pool only — the engine screens these wire fields, so a list name here would raise a sanction alert per wire.
             global _CLEAN_WIRE_POOL
             if _CLEAN_WIRE_POOL is None:
                 _CLEAN_WIRE_POOL = _screen_clean(_RETAIL_NAMES + [c[0] for c in _CORPORATE_NAMES])
@@ -260,28 +218,12 @@ def enrich_with_counterparty_fields(tx: dict, account_category: str) -> dict:
     return tx
 
 
-# Persona dates must land inside each scenario's rolling detection window,
-# which the engine anchors to as_of = the day the pipeline runs. Everything
-# here is therefore relative to now, never a fixed calendar date — fixed
-# dates silently age out of every window and the scenarios stop firing.
+# Persona dates are relative to now (never fixed calendar dates), so they stay inside each scenario's rolling window anchored to as_of = run day.
 
-# Every persona below is tuned to fire EXACTLY its own scenario and nothing
-# else — amounts stay out of the 8,500–9,999 structuring band unless the
-# band IS the scenario, legs are spaced >72h apart unless rapid layering IS
-# the scenario, countries stay NORMAL (and single) unless the scenario needs
-# otherwise, and per-account 6-month sums stay under the AED 55,000 cash
-# ceiling unless cash aggregation IS the scenario. That keeps the practice
-# queue at roughly one alert per persona instead of a wall of cross-fires.
+# Each persona is tuned to fire EXACTLY its own scenario (amounts, spacing, countries, and 6-month sums kept clear of every OTHER scenario's trigger), keeping the queue at ~one alert per persona.
 
 def persona_structuring_account(account_id, n_transactions=3):
-    # SCN_STRUCTURING_CASH: 3+ band transactions in the 30-day window.
-    # Days 16-26 ago: inside the 30-day structuring window but OUTSIDE the
-    # 14-day smurfing window, so this account never joins a smurf cluster;
-    # 4-day spacing keeps any 3 legs out of the 72-hour layering window.
-    # transaction_type is forced to CASH_DEPOSIT — the scenario is
-    # cash-exclusive (see aml_engine.CASH_TYPE_SQL_PREDICATE), so leaving
-    # this to the random _tx_type_for() fallback could silently type these
-    # as WIRE_TRANSFER/CRYPTO and make the persona stop firing its own scenario.
+    # SCN_STRUCTURING_CASH: 3+ band transactions in 30 days, days 16-26 ago (outside the 14-day smurf and 72h layering windows); forced CASH_DEPOSIT since the scenario is cash-exclusive.
     now = datetime.now()
     out = []
     for i in range(n_transactions):
@@ -296,10 +238,7 @@ def persona_structuring_account(account_id, n_transactions=3):
 
 
 def persona_rapid_layering_account(account_id, n_legs=3):
-    # SCN_RAPID_LAYERING: AED 20,000+ across 3+ legs within 72 hours.
-    # 10,500 floor keeps legs above the structuring band (no smurf/struct
-    # cross-fire); ~36k total stays under the 55k cash-agg ceiling and the
-    # 40k same-day CTR threshold.
+    # SCN_RAPID_LAYERING: AED 20,000+ across 3+ legs in 72h; 10,500 floor stays above the band, ~36k total under the 55k cash-agg and 40k CTR thresholds.
     base = datetime.now() - timedelta(days=random.uniform(4, 7))
     out = []
     for i in range(n_legs):
@@ -313,9 +252,7 @@ def persona_rapid_layering_account(account_id, n_legs=3):
 
 
 def persona_cross_border_account(account_id, n_countries=4):
-    # SCN_CROSS_BORDER_ANOMALY: 4+ distinct countries within 30 days.
-    # NORMAL countries only (no high-risk cross-fire), amounts below the
-    # band, ~7-day spacing so no 3 legs land in a 72-hour window.
+    # SCN_CROSS_BORDER_ANOMALY: 4+ distinct NORMAL countries in 30 days, amounts below the band, ~7-day spacing (no 72h cluster).
     now = datetime.now()
     countries = random.sample(NORMAL, k=n_countries)
     out = []
@@ -330,11 +267,7 @@ def persona_cross_border_account(account_id, n_countries=4):
 
 
 def persona_smurfing_cluster(account_ids):
-    # SCN_MULTI_ACCOUNT_STRUCTURING: 3+ accounts in band within 14 days —
-    # one band transaction per account (a single tx can never also trip
-    # the 3-transaction single-account structuring rule). Forced
-    # CASH_DEPOSIT for the same reason as persona_structuring_account —
-    # this scenario is cash-exclusive.
+    # SCN_MULTI_ACCOUNT_STRUCTURING: 3+ accounts in band within 14 days, one band tx per account (can't also trip single-account structuring); forced CASH_DEPOSIT (cash-exclusive).
     base = datetime.now() - timedelta(days=11)
     out = []
     for account_id in account_ids:
@@ -349,9 +282,7 @@ def persona_smurfing_cluster(account_ids):
 
 
 def persona_dormant_reactivation_account(account_id):
-    # SCN_DORMANT_REACTIVATION: last activity 180+ days before as_of, then
-    # a reactivating transaction above AED 15,000. NORMAL country and <40k
-    # so it can't also fire high-risk-jurisdiction or a CTR.
+    # SCN_DORMANT_REACTIVATION: last activity 180+ days before as_of, then a reactivating tx above AED 15,000 (NORMAL country, <40k so no jurisdiction/CTR cross-fire).
     now = datetime.now()
     early = now - timedelta(days=random.randint(300, 360), hours=random.randint(0, 23))
     reactivation = now - timedelta(days=random.randint(2, 12), hours=random.randint(0, 23))
@@ -366,22 +297,7 @@ def persona_dormant_reactivation_account(account_id):
 
 
 def persona_cash_agg_account(account_id, n_transactions=8):
-    # SCN_CASH_AGG_6M: cumulative CASH-channel amount over a rolling
-    # 6-month window above the account's effective threshold. 8 tx of
-    # 7,000-7,800 spaced ~18 days apart lands ~AED 59,000 — above the
-    # threshold while: staying below the 8,500 structuring band floor,
-    # never putting 3 legs inside 72 hours (rapid layering), keeping to
-    # one country (cross-border), and keeping the last-30-days volume in
-    # line with the account's own baseline (behaviour change).
-    #
-    # Forced CASH_DEPOSIT — the scenario is cash-exclusive, so leaving
-    # this to the random type fallback risks these legs getting typed as
-    # WIRE_TRANSFER/CRYPTO and silently dropping out of the aggregate. See
-    # PERSONA_EXPECTED_VOLUME_OVERRIDES for why this persona's account
-    # also needs a below-default expected_monthly_volume: at the standard
-    # AED 50,000 EMV, the new expected-volume-aware threshold (EMV * 6mo *
-    # 0.5 = 150,000) would swallow this persona's ~59k total and it would
-    # stop demonstrating the flat AED 55,000 floor entirely.
+    # SCN_CASH_AGG_6M: ~AED 59,000 of cash over 6 months (8 tx of 7,000-7,800, ~18d apart) clearing the flat 55k floor while dodging every other scenario; forced CASH_DEPOSIT, and see PERSONA_EXPECTED_VOLUME_OVERRIDES for the below-default EMV this persona needs.
     now = datetime.now()
     out = []
     for i in range(n_transactions):
@@ -396,25 +312,7 @@ def persona_cash_agg_account(account_id, n_transactions=8):
 
 
 def persona_virtual_asset_routing_account(account_id):
-    # Regression coverage for the exact real-world gap reported on this
-    # persona's namesake account: mostly non-cash activity (contract-
-    # payment wires, a crypto-exchange outflow) plus one small ATM cash
-    # deposit, where the crypto leg's intermediary_countries routing path
-    # touches Myanmar (MM) even though its declared endpoint (SG) is a
-    # NORMAL-list country. Confirms two fixes together:
-    #   1. SCN_CASH_AGG_6M no longer aggregates the wire/crypto legs — only
-    #      the ~500 AED cash deposit counts as cash, nowhere near any
-    #      threshold. Before the channel fix, the full ~75k mixed total
-    #      would have cleared the flat AED 55,000 floor and fired a
-    #      high-severity "cash aggregation" alert whose evidence was
-    #      almost entirely non-cash.
-    #   2. SCN_HIGH_RISK_JURISDICTION now fires off the MM ROUTING HOP
-    #      alone, even though the crypto transfer's own declared endpoint
-    #      is benign.
-    # All legs land within the last 30 days (nothing further back), so
-    # there is no baseline-period transaction at all — keeps this account
-    # out of SCN_BEHAVIOUR_CHANGE's baseline join entirely rather than
-    # tripping it as a side effect of the wire/crypto volume.
+    # Regression persona: mixed non-cash activity + one small ATM cash deposit with a crypto leg routed through MM (endpoint SG) — confirms SCN_CASH_AGG_6M ignores wire/crypto legs and SCN_HIGH_RISK_JURISDICTION fires off the MM routing hop; all legs within 30 days so no SCN_BEHAVIOUR_CHANGE baseline.
     now = datetime.now()
     out = [{
         "transaction_id": str(uuid.uuid4()), "account_id": account_id,
@@ -439,9 +337,7 @@ def persona_virtual_asset_routing_account(account_id):
 
 
 def persona_high_risk_jurisdiction_account(account_id):
-    # SCN_HIGH_RISK_JURISDICTION: single transaction above AED 10,000
-    # involving a jurisdiction in aml_engine.HIGH_RISK_JURISDICTIONS
-    # (which is narrower than this file's HIGH_RISK pool — "IR" is in both).
+    # SCN_HIGH_RISK_JURISDICTION: single tx above AED 10,000 involving an aml_engine.HIGH_RISK_JURISDICTIONS country (narrower than this file's HIGH_RISK pool; "IR" is in both).
     tx_date = datetime.now() - timedelta(days=random.uniform(1, 10), hours=random.uniform(0, 20))
     return [{
         "transaction_id": str(uuid.uuid4()), "account_id": account_id,
@@ -451,14 +347,7 @@ def persona_high_risk_jurisdiction_account(account_id):
 
 
 def persona_pep_exposure_account(account_id):
-    # SCN_PEP_EXPOSURE single-transaction path: the account's customer_name
-    # (see PERSONA_ACCOUNTS below) is an ACTIVE pep_list entry, so the
-    # engine's _sync_pep_flags_from_screening_db sets is_pep=1, and one
-    # transaction above the AED 50,000 PEP single-tx threshold fires it.
-    # Expected companions on this account: SCN_PEP_MATCH (the name IS the
-    # list entry), SCN_CASH_AGG_6M (PEPs get the tighter 0.7x threshold,
-    # which any 50k+ tx necessarily clears), and a same-day CTR filing —
-    # a PEP moving this much trips several rules at once, by design.
+    # SCN_PEP_EXPOSURE single-tx path: the account's name is an ACTIVE pep_list entry (is_pep=1), and one tx above the AED 50,000 PEP threshold fires it — expected to also trip SCN_PEP_MATCH, SCN_CASH_AGG_6M, and a CTR by design.
     tx_date = datetime.now() - timedelta(days=random.uniform(1, 10), hours=random.uniform(0, 20))
     return [{
         "transaction_id": str(uuid.uuid4()), "account_id": account_id,
@@ -468,10 +357,7 @@ def persona_pep_exposure_account(account_id):
 
 
 def persona_behaviour_change_account(account_id):
-    # SCN_BEHAVIOUR_CHANGE: current 30-day volume 3x+ the account's own
-    # 90-day baseline. One modest baseline transaction, then a recent burst
-    # of three — 8-day spacing (no layering cluster), amounts capped below
-    # the 8,500 band, ~27k six-month total (under the cash-agg ceiling).
+    # SCN_BEHAVIOUR_CHANGE: current 30-day volume 3x+ the 90-day baseline — one baseline tx then a burst of three, 8-day spacing, below the band, ~27k total (under cash-agg).
     now = datetime.now()
     out = [{
         "transaction_id": str(uuid.uuid4()), "account_id": account_id,
@@ -488,24 +374,7 @@ def persona_behaviour_change_account(account_id):
     return out
 
 
-# 14 persona accounts guaranteeing coverage of ALL 12 detection scenarios
-# with a deliberately small footprint (~29 transactions, roughly one alert
-# per persona) so the practice queue stays readable.
-# The PERSONA_* handles are internal keys only (they route the transaction
-# builders and EMV overrides below) — what actually reaches the database,
-# CSV, and UI is the realistic account number from PERSONA_ACCOUNT_IDS and
-# the customer_name here. Pattern-based personas carry screening-clean
-# names that must NOT appear in sanctions_pep_seed.py (or fuzzy/phonetic-
-# match one — see _screen_clean), otherwise they'd raise a duplicate
-# name-match alert on top of their own scenario. The four screening
-# personas carry an EXACT screening-list name from sanctions_pep_seed.py
-# so the name-match scenarios always hit — they need NO transactions at
-# all (the engine anchors a name-match alert to as_of when the account
-# has no activity):
-#   - "Rashid Volkov"      → sanctions_list (OFAC_DEMO), not in _RETAIL_NAMES
-#   - "Aisha Al Hamdan"    → pep_list ACTIVE minister (drives PEP_EXPOSURE via is_pep)
-#   - "Park Jiyeon"        → pep_list ACTIVE head of state
-#   - "Fatima Bint Rashid" → internal_watchlist (PRIOR_SAR)
+# 14 persona accounts covering all 12 scenarios in ~29 transactions; PERSONA_* handles are internal keys, pattern personas carry screening-clean names, and the four screening personas ("Rashid Volkov"/sanctions, "Aisha Al Hamdan" & "Park Jiyeon"/PEP, "Fatima Bint Rashid"/watchlist) carry exact list names and need no transactions.
 PERSONA_ACCOUNTS = [
     ("PERSONA_STRUCT_01",    "Nasser Al Awadhi"),    # SCN_STRUCTURING_CASH
     ("PERSONA_LAYER_01",     "Bilal Qureshi"),       # SCN_RAPID_LAYERING
@@ -524,23 +393,13 @@ PERSONA_ACCOUNTS = [
     ("PERSONA_VAROUTE_01",   "Georgina Mercer"),     # Regression: cash-channel + routing-path jurisdiction fixes
 ]
 
-# Realistic account numbers for the persona accounts — same _account_number
-# scheme as the background book, offset to index 500+ so their serials can
-# never collide with the 220 background accounts (or the random 700–999
-# range make_transaction uses as its no-profile fallback).
+# Realistic persona account numbers — same scheme as the background book, offset to index 500+ so serials never collide with background or fallback accounts.
 PERSONA_ACCOUNT_IDS = {
     handle: _account_number(500 + i)
     for i, (handle, _name) in enumerate(PERSONA_ACCOUNTS)
 }
 
-# Per-persona expected_monthly_volume overrides — every persona otherwise
-# gets the flat default (50,000.00) set in build_customer_profiles below.
-# PERSONA_CASHAGG_01 needs a modest declared EMV so its ~59k cash total
-# still clears the flat AED 55,000 floor under the new expected-volume-
-# aware SCN_CASH_AGG_6M threshold (see aml_engine.CASH_AGG_EXPECTED_VOLUME_RATIO) —
-# at the 50,000 default, the EMV-derived floor (50,000 * 6mo * 0.5 =
-# 150,000) would swallow this persona's total and it would silently stop
-# firing its own scenario.
+# Per-persona expected_monthly_volume overrides (default 50,000): PERSONA_CASHAGG_01 needs a low EMV so its ~59k total clears the flat 55k floor under the expected-volume-aware SCN_CASH_AGG_6M threshold.
 PERSONA_EXPECTED_VOLUME_OVERRIDES = {
     "PERSONA_CASHAGG_01": 8_000.00,
 }
@@ -559,9 +418,7 @@ def build_persona_transactions():
     out += persona_high_risk_jurisdiction_account(acct["PERSONA_HIGHRISK_01"])
     out += persona_pep_exposure_account(acct["PERSONA_PEPEXPO_01"])
     out += persona_virtual_asset_routing_account(acct["PERSONA_VAROUTE_01"])
-    # PERSONA_SANCTION_01 / PERSONA_PEPMATCH_01 / PERSONA_WATCHLIST_01:
-    # intentionally no transactions — their scenarios fire on the profile
-    # name alone.
+    # PERSONA_SANCTION_01 / PERSONA_PEPMATCH_01 / PERSONA_WATCHLIST_01: no transactions — their scenarios fire on the profile name alone.
     return out
 
 
@@ -624,10 +481,7 @@ def build_customer_profiles() -> list[dict]:
     sanctioned_norm = {_normalize(n) for n in sanc_names}
     pep_norm = {_normalize(n) for n in pep_names}
 
-    # Background accounts draw ONLY screening-clean names — the deliberate
-    # sanctions/PEP/watchlist overlap lives on the four screening persona
-    # accounts (see PERSONA_ACCOUNTS), exactly one hit per list, instead of
-    # being smeared across the whole customer base.
+    # Background accounts draw only screening-clean names — the sanctions/PEP/watchlist overlap lives on the four screening personas, one hit per list.
     clean_retail = _screen_clean(_RETAIL_NAMES) or list(_RETAIL_NAMES)
 
     profiles = []
@@ -644,9 +498,7 @@ def build_customer_profiles() -> list[dict]:
         name = clean_retail[i % len(clean_retail)]
         jurisdiction_flag = (i % 11 == 0)
         risk_rating, risk_reason = _crr_for(name, sanctioned_norm, pep_norm, jurisdiction_flag)
-        # Jurisdiction-flagged accounts get a grey-list nationality so the
-        # KYC score agrees with their onboarding risk_rating_reason; most
-        # customers reside in AE, every 7th lives in their home country.
+        # Jurisdiction-flagged accounts get a grey-list nationality matching their onboarding reason; most reside in AE, every 7th in their home country.
         if jurisdiction_flag:
             nationality = _HIGH_RISK_NATIONALITY_POOL[i % len(_HIGH_RISK_NATIONALITY_POOL)]
         else:
@@ -665,15 +517,11 @@ def build_customer_profiles() -> list[dict]:
         idx += 1
         account_id = _account_number(idx)
         corp_name, ubos = _CORPORATE_NAMES[i % len(_CORPORATE_NAMES)]
-        # UBO names get the same screening-clean treatment as retail names —
-        # a listed beneficial owner on a background account would raise its
-        # own UBO screening alert per profile. Companies whose UBOs are all
-        # list names get a clean stand-in owner instead.
+        # UBO names are screening-clean like retail names (a listed owner would raise its own UBO alert); all-listed UBOs get a clean stand-in.
         ubos = _screen_clean(ubos) or [clean_retail[i % len(clean_retail)]]
         jurisdiction_flag = (i % 9 == 0)
         risk_rating, risk_reason = _crr_for(corp_name, sanctioned_norm, pep_norm, jurisdiction_flag)
-        # Non-individuals: nationality doubles as country of incorporation,
-        # date_of_birth stays NULL (templates render the '—' fallback).
+        # Non-individuals: nationality doubles as country of incorporation, date_of_birth stays NULL (templates render '—').
         incorporation = (
             _OFFSHORE_INCORPORATION_POOL[i % len(_OFFSHORE_INCORPORATION_POOL)]
             if jurisdiction_flag else "AE"
@@ -726,11 +574,7 @@ def write_customer_profiles(profiles: list[dict], company_id: str) -> None:
     conn.executescript(aml_engine.SCHEMA_DDL)
     aml_engine._apply_additive_migrations(conn)
     for p in profiles:
-        # Task 3: encrypt sensitive PII (customer_name, nationality,
-        # date_of_birth) before it ever touches the database file. Everything
-        # else on the profile stays cleartext — it's operational, not PII.
-        # encrypt_pii is NULL-safe (CORPORATE/CORRESPONDENT dob is None) and
-        # idempotent, so the ON CONFLICT re-write can't double-wrap.
+        # Task 3: encrypt PII (customer_name/nationality/date_of_birth) before it touches the DB; rest stays cleartext. encrypt_pii is NULL-safe and idempotent, so ON CONFLICT can't double-wrap.
         enc_name = pii_crypto.encrypt_pii(p["customer_name"])
         enc_nationality = pii_crypto.encrypt_pii(p["nationality"])
         enc_dob = pii_crypto.encrypt_pii(p["date_of_birth"])
@@ -767,14 +611,11 @@ def main(company_id: str):
     write_customer_profiles(profiles, company_id)
 
     account_by_category = {p["account_id"]: p["account_category"] for p in profiles}
-    # Background traffic must never land on a persona account — each persona
-    # is tuned to fire EXACTLY its own scenario, and stray transactions
-    # could cross-fire others.
+    # Background traffic never lands on a persona account — a stray tx could cross-fire another scenario.
     persona_account_ids = set(PERSONA_ACCOUNT_IDS.values())
     real_account_ids = [p["account_id"] for p in profiles if p["account_id"] not in persona_account_ids]
 
-    # Trailing 12 months ending today — the engine anchors every rolling
-    # detection window to as_of = run day, so data must reach the present.
+    # Trailing 12 months ending today — the engine anchors every window to as_of = run day, so data must reach the present.
     start = datetime.now() - timedelta(days=365)
     rows = []
     for _ in range(N_BACKGROUND_TX):
@@ -789,12 +630,7 @@ def main(company_id: str):
 
     incoming_dir = Path("data/incoming")
     incoming_dir.mkdir(parents=True, exist_ok=True)
-    # One file per company_id — /run-pipeline may be triggered by different
-    # companies close together, and aml_loader.py ingests every *.csv it
-    # finds in data/incoming in one pass, tagging ALL of them with whatever
-    # single company_id it's invoked with (see run_ingestion). Distinct
-    # per-company filenames keep concurrent generate+ingest cycles from
-    # racing over the same file or misattributing rows.
+    # One file per company_id — aml_loader ingests every *.csv in data/incoming under one company_id, so distinct per-company filenames prevent concurrent cycles racing or misattributing rows.
     file_path = incoming_dir / f"aml_transactions_{company_id}.csv"
 
     fieldnames = ["transaction_id", "account_id", "amount", "country", "transaction_date",
@@ -813,9 +649,7 @@ def main(company_id: str):
 if __name__ == "__main__":
     import sys
     import auth_security
-    # Direct terminal runs load .env themselves (app-triggered subprocess runs
-    # inherit os.environ from the parent). Ensures the SAME NEXUSBARRIER_PII_KEY
-    # is used here as the web app, so what this script encrypts stays readable.
+    # Direct terminal runs load .env themselves (subprocess runs inherit os.environ) so the same NEXUSBARRIER_PII_KEY is used as the web app.
     try:
         from dotenv import load_dotenv
         load_dotenv()

@@ -1,63 +1,19 @@
-"""
-kyc_risk.py — Initial Customer Risk Rating (static KYC-attribute scoring)
-Deterministic onboarding-time risk rating computed from WHO the customer is
-on file (customer_type, PEP flag, EDD flag, nationality / country of
-residence) — no transaction behaviour at all. This is deliberately a
-different layer from aml_risk.py, which scores transaction *behaviour*
-(velocity, structuring proximity, jurisdiction exposure of actual flows):
-
-    kyc_risk.py  → "how risky is this customer on paper?"   (static, pure)
-    aml_risk.py  → "how risky is what this account is doing?" (behavioural)
-
-Regulatory basis (UAE):
-  - Federal Decree-Law No. (20) of 2018 on AML/CFT (as amended) and
-    Cabinet Decision No. (10) of 2019 establish the Risk-Based Approach:
-    institutions must identify and assess customer risk and apply
-    commensurate due diligence (FATF Recommendation 1).
-  - Art. 15, Cabinet Decision No. (10) of 2019 / FATF R.12: foreign PEPs
-    require Enhanced Due Diligence and senior-management approval — this
-    is why is_pep floors the tier at HIGH below (the profile schema does
-    not distinguish foreign from domestic PEPs, so the conservative
-    treatment is applied to all).
-  - Art. 28, Cabinet Decision No. (10) of 2019 / FATF R.13: cross-border
-    correspondent relationships carry their own mandatory due-diligence
-    obligations — hence the CORRESPONDENT account-category weight.
-
-As with aml_risk.py: the individual point weights and jurisdiction sets
-below are institutional CALIBRATION implementing the RBA principle, not
-statutory figures. FATF/CBUAE mandate that higher risk gets more
-scrutiny; they do not prescribe "+5 for PEP". A real deployment should
-have compliance sign off on the numbers. Exceeding the FATF floor (e.g.
-keeping a delisted jurisdiction on the internal elevated-risk list) is
-explicitly permitted — the lists below do exactly that.
-
-Pure module: no database access, no writes, no randomness. Same input
-dict always produces the same output dict.
-"""
+"""kyc_risk.py — pure, deterministic static (KYC-attribute) initial risk rating (no DB/behaviour), scoring customer_type/PEP/EDD/jurisdiction on a 1–15 scale per the UAE RBA (Cabinet Decision 10/2019, FATF R.1/12/13); weights and jurisdiction lists are institutional calibration (permitted to exceed the FATF floor), not statutory, and PEP floors the tier at HIGH."""
 
 MAX_RISK_SCORE = 15
 BASELINE_SCORE = 1  # every customer starts at 1 — the scale is 1..15, not 0..15
 
-# Jurisdiction risk sets (ISO-3166 alpha-2, matching transactions.country
-# and aml_engine.HIGH_RISK_JURISDICTIONS conventions)
-#
-# FATF "call for action" black list — highest weight.
+# Jurisdiction risk sets (ISO-3166 alpha-2): FATF call-for-action black list — highest weight.
 FATF_CALL_FOR_ACTION = {"KP", "IR", "MM"}
 
-# FATF "increased monitoring" grey list (snapshot) plus CBUAE-flagged
-# corridors already treated as high-risk by the transaction-monitoring
-# layer (see aml_engine.HIGH_RISK_JURISDICTIONS) — moderate weight.
+# FATF increased-monitoring grey list plus CBUAE-flagged corridors (see aml_engine.HIGH_RISK_JURISDICTIONS) — moderate weight.
 FATF_INCREASED_MONITORING = {
     "SY", "CU", "YE", "LY", "AF", "HT", "PK", "PH",
     "SS", "LB", "CD", "VE", "DZ", "AO", "BO", "BG", "CM", "CI", "KE",
     "LA", "NA", "NP", "VN",
 }
 
-# Offshore / secrecy financial centres — institutional risk-appetite list,
-# NOT a FATF list. Deliberately retains jurisdictions FATF has since
-# delisted (Malta 2022, Cayman Islands and Panama 2023) because opaque
-# ownership structures routed through them remain a live ML typology;
-# keeping them here is a permitted exceed-the-floor calibration choice.
+# Offshore/secrecy centres — institutional (not FATF) list; keeps FATF-delisted jurisdictions, a permitted exceed-the-floor choice.
 OFFSHORE_SECRECY_CENTRES = {"KY", "PA", "MT", "VG", "MC", "LI", "SC", "BS"}
 
 # Factor weights (points on the 1–15 scale)
@@ -107,17 +63,13 @@ def calculate_initial_risk_rating(customer_dict: dict) -> dict:
     score = BASELINE_SCORE
     factors: list[str] = []
 
-    # Customer type — corporates score higher than individuals: layered
-    # ownership (UBOs, nominee arrangements) obscures who really controls
-    # the funds.
+    # Customer type — corporates score higher: layered ownership obscures who controls the funds.
     customer_type = (customer_dict.get("customer_type") or "").upper()
     if customer_type == "CORPORATE":
         score += WEIGHT_COMPLEX_ENTITY
         factors.append(f"Complex Entity Structure (+{WEIGHT_COMPLEX_ENTITY})")
 
-    # Correspondent banking relationship — its own mandatory due-diligence
-    # regime (Art. 28, Cabinet Decision 10/2019), stacked on top of the
-    # corporate weight since correspondents are corporates too.
+    # Correspondent banking — its own mandatory due-diligence regime (Art. 28), stacked on the corporate weight.
     account_category = (customer_dict.get("account_category") or "").upper()
     if account_category == "CORRESPONDENT":
         score += WEIGHT_CORRESPONDENT
@@ -129,16 +81,12 @@ def calculate_initial_risk_rating(customer_dict: dict) -> dict:
         score += WEIGHT_PEP
         factors.append(f"Politically Exposed Person Status (+{WEIGHT_PEP})")
 
-    # An EDD flag already on file is itself a risk signal — someone has
-    # already judged this customer to need enhanced measures.
+    # An EDD flag already on file is itself a risk signal — someone judged this customer to need enhanced measures.
     if customer_dict.get("edd_required"):
         score += WEIGHT_EDD_REQUIRED
         factors.append(f"Enhanced Due Diligence Required (+{WEIGHT_EDD_REQUIRED})")
 
-    # Jurisdiction — nationality and country of residence are both checked;
-    # each tier counts at most once no matter how many fields hit it, and a
-    # customer can trip multiple tiers (e.g. black-list nationality resident
-    # in an offshore centre).
+    # Jurisdiction — nationality and residence both checked; each tier counts once, but multiple tiers can trip.
     countries = {
         (customer_dict.get("nationality") or "").upper(),
         (customer_dict.get("country_of_residence") or "").upper(),
@@ -169,12 +117,7 @@ def calculate_initial_risk_rating(customer_dict: dict) -> dict:
     score = min(score, MAX_RISK_SCORE)
     tier = _tier_from_score(score)
 
-    # PEP tier floor — Art. 15, Cabinet Decision No. (10) of 2019 / FATF
-    # R.12 mandate EDD for (foreign) PEPs regardless of how the rest of the
-    # profile scores; the schema doesn't record foreign vs. domestic, so
-    # all PEPs get the conservative treatment. The numeric score is left
-    # honest — only the tier is floored, and the floor is disclosed as its
-    # own trigger so investigators see it wasn't the arithmetic.
+    # PEP tier floor — Art. 15 / FATF R.12 mandate EDD for PEPs; float only the tier (score stays honest), disclosed as its own trigger.
     if is_pep and tier != "HIGH":
         tier = "HIGH"
         factors.append("PEP Status Floors Tier at HIGH (mandatory EDD)")

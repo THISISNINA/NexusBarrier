@@ -1,41 +1,4 @@
-"""
-pii_crypto — field-level encryption for sensitive customer PII at rest.
-
-Task 3 (PII-at-rest): highly sensitive customer metadata — `customer_name`,
-`nationality`, `date_of_birth` (on customer_profiles) and
-`counterparty_wallet_address` (on transactions) — must not sit in the SQLite
-database file as cleartext. This module wraps `cryptography.fernet` (AES-128-CBC
-+ HMAC-SHA256 authenticated encryption; "AES-256-class" symmetric protection)
-behind two tiny, side-effect-free helpers:
-
-    encrypt_pii(plaintext) -> ciphertext token   (called on every write path)
-    decrypt_pii(token)     -> plaintext           (called only when an
-                                                    authorized service reads a
-                                                    profile / screens a name)
-
-Design decisions that make retrofitting encryption onto an app full of
-hand-written SQL safe and incremental:
-
-1. Sentinel-prefixed tokens (`ENC_PREFIX`). Every ciphertext we emit is
-   `"pii:v1:" + <fernet token>`. `decrypt_pii` treats anything WITHOUT that
-   prefix as legacy cleartext and returns it untouched. This means:
-     • encrypted rows and pre-encryption (legacy) rows coexist in one table;
-     • `decrypt_pii` is idempotent and NULL-safe, so it can be layered onto a
-       read site without knowing whether that particular row was encrypted;
-     • `encrypt_pii` is idempotent — re-encrypting an already-encrypted value
-       is a no-op, so an UPSERT that re-reads then re-writes can't double-wrap.
-
-2. A STABLE key, resolved once at import. Field encryption is worthless if the
-   key changes between processes: a Gunicorn worker that can't decrypt what a
-   sibling worker wrote is a data-loss bug, not a security feature. The key is
-   read from `NEXUSBARRIER_PII_KEY` (see `_resolve_keys`); absent that, a
-   deterministic development key is derived so a laptop demo keeps working —
-   with a loud warning, because that fallback key is NOT secret.
-
-Key rotation: `NEXUSBARRIER_PII_KEY` may hold a comma-separated list. The first
-entry encrypts; all entries can decrypt (MultiFernet), so you can introduce a
-new primary key and retire an old one without a flag-day re-encryption.
-"""
+"""pii_crypto — field-level Fernet encryption for PII at rest; sentinel-prefixed ("pii:v1:"), NULL-safe, idempotent tokens that coexist with legacy cleartext, using an import-stable key from NEXUSBARRIER_PII_KEY (comma-separated list enables MultiFernet rotation; deterministic dev fallback when unset)."""
 
 import base64
 import hashlib
@@ -47,17 +10,12 @@ from cryptography.fernet import Fernet, InvalidToken, MultiFernet
 
 log = logging.getLogger(__name__)
 
-# Marks a value this module produced. Bumped only if the on-disk token format
-# itself changes (not on key rotation — that's handled by MultiFernet).
+# Marks a value this module produced; bumped only if the on-disk token format changes (not on rotation).
 ENC_PREFIX = "pii:v1:"
 
 _ENV_KEY = "NEXUSBARRIER_PII_KEY"
 
-# Deterministic development fallback. Derived, not random, so every process on
-# the same machine derives the SAME key and can therefore read each other's
-# ciphertext across restarts and Gunicorn workers. This is explicitly NOT a
-# secret — it ships in source — which is exactly why production MUST set
-# NEXUSBARRIER_PII_KEY. See _resolve_keys.
+# Deterministic (not random) dev fallback so every process derives the same readable key; NOT secret, so production MUST set NEXUSBARRIER_PII_KEY.
 _DEV_SEED = "nexusbarrier-development-pii-key-do-not-use-in-production"
 
 
@@ -84,9 +42,7 @@ def _resolve_keys() -> MultiFernet:
         try:
             return MultiFernet([Fernet(k.encode("utf-8")) for k in keys])
         except (ValueError, TypeError) as exc:
-            # A malformed key is a hard configuration error: failing loudly is
-            # safer than silently falling back to the public dev key and
-            # writing "encrypted" data anyone can read.
+            # A malformed key is a hard config error: fail loudly rather than silently use the public dev key.
             raise RuntimeError(
                 f"{_ENV_KEY} is set but is not a valid Fernet key (or "
                 f"comma-separated list of them): {exc}"
@@ -102,10 +58,7 @@ def _resolve_keys() -> MultiFernet:
     return MultiFernet([Fernet(_derive_fernet_key(_DEV_SEED))])
 
 
-# Resolved LAZILY on first use, then cached for the life of the process — one
-# stable key set shared by every worker. Lazy (not at import) so a `.env`
-# loaded via python-dotenv in an entry point's __main__ is honoured even though
-# this module is imported at the top of that file, before load_dotenv() runs.
+# Resolved lazily on first use (not at import, so a dotenv-loaded .env is honoured) then cached process-wide.
 _FERNET: Optional[MultiFernet] = None
 
 
@@ -147,15 +100,12 @@ def decrypt_pii(value: Optional[str]) -> Optional[str]:
     try:
         return _get_fernet().decrypt(value[len(ENC_PREFIX):].encode("ascii")).decode("utf-8")
     except InvalidToken:
-        # Wrong key (e.g. a rotated-out key with no overlap) or corrupted
-        # token. Fail safe for a read path: log and surface a redaction marker
-        # rather than crashing the whole page render on one bad row.
+        # Wrong key or corrupted token: fail safe on a read path — log and surface a marker, don't crash the render.
         log.error("Failed to decrypt a PII field (InvalidToken) — key mismatch or corruption.")
         return "[ENCRYPTED]"
 
 
-# Fields we encrypt on customer_profiles. Centralised so write and read sites
-# stay in lock-step — add a column here and both sides pick it up.
+# Fields encrypted on customer_profiles; centralised so write and read sites stay in lock-step.
 PROFILE_PII_FIELDS = ("customer_name", "nationality", "date_of_birth")
 
 

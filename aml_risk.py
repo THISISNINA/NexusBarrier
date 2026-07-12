@@ -1,44 +1,4 @@
-"""
-aml_risk.py — Weighted Risk Scoring Engine
-Read-only scoring layer that sits alongside the rule-based scenarios in
-aml_engine.py. It does NOT replace the threshold rules — FATF-aligned
-monitoring still needs deterministic, auditable triggers ("this account
-crossed AED 55,000 in 6 months" must always fire, full stop, or you have
-a regulatory gap). What this module adds is a *risk score* layered on top,
-used for two things:
-
-    1. Dynamic severity: scenarios that already fire (cash agg, structuring,
-       high-risk jurisdiction, behaviour change) can use the score to set
-       severity instead of a single hardcoded amount cutoff, so a HIGH-risk
-       PEP tripping a MEDIUM-typology rule still surfaces as urgent.
-    2. Prioritisation: feeds case_priority_score so the queue can be sorted
-       by something more informative than created_at.
-
-This module performs NO writes to aml_alerts or str_decisions — exactly
-like alert_filter.py and aml_reports.py, scoring is advisory input to
-raise_alert(), not a workflow decision. Only AMLWorkflowManager writes
-alert/decision state.
-
-Score components (0-100 each, weighted, summed, capped at 100):
-
-    velocity_score       — transaction count/volume acceleration vs. the
-                            account's own recent history (not a fixed
-                            multiple like SCN_BEHAVIOUR_CHANGE; this is a
-                            continuous score so two accounts both "above
-                            the 3x line" can still be told apart)
-    jurisdiction_score    — destination/origin country risk, tiered rather
-                            than binary in/out of HIGH_RISK_JURISDICTIONS
-    structuring_score     — proximity to the just-below-threshold band,
-                            scaled by clustering (closer to the ceiling +
-                            more transactions = higher)
-    segment_score         — customer_type / risk_rating / is_pep baseline,
-                            since the same transaction means more risk on
-                            a flagged PEP than an established retail client
-
-Weights are configurable constants below, not hardcoded inline, so they
-can be tuned/retrained against real disposition outcomes later (see
-feedback-loop note at the bottom of this file).
-"""
+"""aml_risk.py — read-only weighted risk-scoring layer (velocity/jurisdiction/structuring/segment, 0-100 each, weighted and capped at 100) advising raise_alert() severity/prioritisation alongside the deterministic rules; performs no writes, and weights are tunable constants for a future outcome-fed feedback loop."""
 import sqlite3
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
@@ -52,39 +12,14 @@ WEIGHT_SEGMENT        = 0.15
 
 assert abs((WEIGHT_VELOCITY + WEIGHT_JURISDICTION + WEIGHT_STRUCTURING + WEIGHT_SEGMENT) - 1.0) < 1e-9
 
-# Risk-tier threshold adjustment
-# Regulatory basis vs. institutional judgment — these are two different
-# things and it matters not to blur them:
-#
-# What IS a real, binding requirement: FATF Recommendation 1 establishes
-# the Risk-Based Approach (RBA) — institutions must apply enhanced
-# monitoring to higher-risk customers and are permitted simplified
-# measures for lower-risk ones (FATF Guidance for a Risk-Based Approach —
-# Banking Sector, 2014). FATF Recommendation 12 specifically requires
-# enhanced ongoing monitoring for PEPs. That principle — higher risk
-# means more scrutiny, not the same scrutiny — is genuinely mandated.
-#
-# What is NOT mandated: any specific numeric multiplier. FATF's own
-# guidance is explicit that "national law or regulation might not
-# prescribe exactly how these higher risks are to be mitigated." The
-# 0.7 / 1.0 / 1.3 figures below are OUR chosen calibration implementing
-# the RBA principle — a reasonable starting point, not a statutory
-# figure. A real deployment should have a compliance/legal review sign
-# off on the actual numbers, not inherit these from a demo.
-#
-# Multiplier is applied to a flat AED threshold: < 1.0 lowers the
-# effective threshold (fires more easily — enhanced monitoring), > 1.0
-# raises it (simplified monitoring where justified).
+# Risk-tier threshold multiplier applied to a flat AED threshold (<1.0 = enhanced monitoring, >1.0 = simplified); FATF R.1/R.12 mandate the risk-based principle, but the 0.7/1.0/1.3 numbers are our calibration, not statutory.
 RISK_TIER_THRESHOLD_MULTIPLIER = {
     "HIGH": 0.7,
     "MEDIUM": 1.0,
     "LOW": 1.3,
 }
 DEFAULT_RISK_TIER_MULTIPLIER = RISK_TIER_THRESHOLD_MULTIPLIER["MEDIUM"]
-# PEP status floors sensitivity at HIGH-risk level regardless of the
-# account's stated risk_rating — reflects FATF R.12's specific PEP
-# treatment as its own enhanced-monitoring trigger, not just a factor
-# rolled into the general risk_rating bucket.
+# PEP status floors sensitivity at HIGH regardless of stated risk_rating (FATF R.12's own enhanced-monitoring trigger).
 PEP_THRESHOLD_MULTIPLIER_CAP = RISK_TIER_THRESHOLD_MULTIPLIER["HIGH"]
 
 
@@ -97,9 +32,7 @@ def get_threshold_multiplier(risk_rating: Optional[str], is_pep: bool) -> float:
         multiplier = min(multiplier, PEP_THRESHOLD_MULTIPLIER_CAP)
     return multiplier
 
-# Jurisdiction risk tiers (finer-grained than the binary HIGH_RISK set
-# aml_engine.py uses for trigger purposes — this is scoring input only,
-# it does NOT change which transactions trigger SCN_HIGH_RISK_JURISDICTION)
+# Jurisdiction risk tiers (finer-grained than aml_engine's binary HIGH_RISK set); scoring input only, doesn't change triggers.
 JURISDICTION_TIER_SCORES = {
     # FATF black list / DPRK-style sanctions-adjacent — maximum score
     "KP": 100, "IR": 100, "SY": 95, "CU": 90,
@@ -184,8 +117,7 @@ def _velocity_score(conn: sqlite3.Connection, account_id: str, as_of_date: str, 
     base_vol_per_period = (base_vol / baseline_window_days) * VELOCITY_RECENT_DAYS if base_vol else 0.0
 
     if base_vol_per_period <= 0:
-        # No real baseline to compare against (new/dormant account suddenly
-        # active) — scale on absolute recent volume instead, capped.
+        # No real baseline (new/dormant account suddenly active) — scale on absolute recent volume instead, capped.
         return min(100.0, (recent_vol / 50_000) * 100)
 
     ratio = recent_vol / base_vol_per_period
@@ -217,10 +149,7 @@ def _jurisdiction_score(conn: sqlite3.Connection, account_id: str, as_of_date: s
 
     if not rows:
         return 0.0
-    # Intermediary routing hops count exactly like declared endpoints — a
-    # payment routed THROUGH a black-list jurisdiction is exposure to that
-    # jurisdiction regardless of where it claims to terminate (mirrors the
-    # routing-path leg of SCN_HIGH_RISK_JURISDICTION in aml_engine.py).
+    # Intermediary routing hops count like declared endpoints — routing THROUGH a black-list jurisdiction is exposure to it.
     countries: set[str] = set()
     for country, hops_str in rows:
         countries.add(country)
@@ -236,9 +165,7 @@ def _structuring_score(conn: sqlite3.Connection, account_id: str, as_of_date: st
     is deliberately a continuous precursor signal to SCN_STRUCTURING_CASH's
     hard 3-transaction trigger, useful for accounts at 1-2 transactions that
     don't yet meet the rule but are trending toward it."""
-    # Cash channels only (NULL-tolerant for untyped legacy rows) — this is
-    # the continuous precursor to SCN_STRUCTURING_CASH, which is itself
-    # cash-exclusive; a wire in the band shouldn't inflate its precursor.
+    # Cash channels only (NULL-tolerant for untyped legacy rows); SCN_STRUCTURING_CASH is cash-exclusive, so a wire shouldn't inflate its precursor.
     row = conn.execute("""
         SELECT COUNT(*), COALESCE(AVG(amount), 0), COALESCE(MAX(amount), 0)
         FROM transactions

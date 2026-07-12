@@ -12,18 +12,7 @@ DB_PATH        = Path("data/database/aml_monitoring.db")
 INCOMING_DIR   = Path("data/incoming")
 PROCESSED_DIR  = Path("data/processed")
 REQUIRED_FIELDS = {"transaction_id", "account_id", "amount", "country", "transaction_date"}
-# Item 12: counterparty/reference/wire fields are OPTIONAL — older CSVs
-# without them must keep loading (REQUIRED_FIELDS is unchanged), but when
-# present they're persisted so sanctions screening can read wire-message
-# names independently of the account holder's own name.
-#
-# transaction_type / counterparty_type / counterparty_wallet_address /
-# intermediary_countries: channel + virtual-asset + routing metadata.
-# transaction_type (CASH_DEPOSIT / CASH_WITHDRAWAL / WIRE_TRANSFER / CRYPTO /
-# SALARY / RETAIL) is what lets cash-exclusive scenarios stop evaluating
-# wires and crypto outflows against cash rules; intermediary_countries is a
-# pipe-separated routing path (e.g. "AE|MM|SG") so jurisdiction screening
-# can see every hop a payment touched, not just the declared endpoint.
+# Item 12: optional wire/channel/routing metadata — older CSVs load without them, but when present they feed screening, cash-channel discrimination, and per-hop jurisdiction checks (intermediary_countries is a pipe-separated path, e.g. "AE|MM|SG").
 OPTIONAL_FIELDS = (
     "counterparty_name", "reference",
     "ordering_customer_name", "beneficiary_name", "originating_bank_bic",
@@ -43,16 +32,7 @@ log = logging.getLogger(__name__)
 
 # Database bootstrap
 def init_db(conn: sqlite3.Connection) -> None:
-    # Ensures aml_engine's schema (aml_alerts, customer_profiles, etc.)
-    # already exists before transactions does. Whichever of generator.py /
-    # aml_loader.py / aml_engine.py happens to run first against a brand
-    # new database is otherwise a race over who creates `transactions` —
-    # and the loser of that race would create it via a bare CREATE TABLE
-    # missing company_id (only added below, by _apply_additive_migrations,
-    # which requires the table to already exist to find it). Calling
-    # init_schema() here first, before transactions exists, is a no-op for
-    # the transactions-specific migration but guarantees the rest of the
-    # schema is in place either way.
+    # Build aml_engine's schema first so `transactions` isn't race-created by a bare CREATE TABLE missing company_id.
     import aml_engine
     aml_engine.init_schema(conn)
 
@@ -75,9 +55,7 @@ def init_db(conn: sqlite3.Connection) -> None:
             intermediary_countries  TEXT           -- pipe-separated routing path, e.g. "AE|MM|SG"
         )
     """)
-    # Additive migration guard, mirroring aml_engine.py's
-    # _add_column_if_missing pattern, so DBs created before item 12 still
-    # pick up the new columns on next ingestion run without a fresh DB.
+    # Additive migration guard (mirrors aml_engine._add_column_if_missing) so pre-item-12 DBs pick up new columns.
     existing = {row[1] for row in conn.execute("PRAGMA table_info(transactions)").fetchall()}
     for col in OPTIONAL_FIELDS:
         if col not in existing:
@@ -93,9 +71,7 @@ def init_db(conn: sqlite3.Connection) -> None:
         )
     """)
     conn.commit()
-    # transactions now exists — this backfills company_id/interdiction_status
-    # onto it (the existence-gated block in _apply_additive_migrations that
-    # init_schema()'s call above couldn't reach yet).
+    # transactions now exists — backfill company_id/interdiction_status that the earlier init_schema() couldn't reach.
     aml_engine._apply_additive_migrations(conn)
 
 
@@ -156,9 +132,7 @@ def load_file(conn: sqlite3.Connection, filepath: Path, company_id: str) -> tupl
                         (row.get("originating_bank_bic") or "").strip() or None,
                         (row.get("transaction_type") or "").strip().upper() or None,
                         (row.get("counterparty_type") or "").strip().upper() or None,
-                        # Task 3: virtual-asset wallet addresses are PII —
-                        # encrypt before the row lands in the DB file. NULL-safe,
-                        # so untyped/non-crypto legs (no wallet) stay NULL.
+                        # Task 3: wallet addresses are PII — encrypt before the row lands in the DB (NULL-safe).
                         pii_crypto.encrypt_pii((row.get("counterparty_wallet_address") or "").strip() or None),
                         (row.get("intermediary_countries") or "").strip().upper() or None,
                         company_id,
@@ -240,8 +214,7 @@ def run_ingestion(company_id: str) -> None:
 if __name__ == "__main__":
     import sys
     import auth_security
-    # See generator.py — load .env for direct terminal runs so the PII key here
-    # matches the web app's (encrypt/decrypt must use the same key).
+    # Load .env for direct terminal runs so the PII key matches the web app's (see generator.py).
     try:
         from dotenv import load_dotenv
         load_dotenv()

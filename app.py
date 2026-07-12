@@ -1,11 +1,6 @@
 import os
 
-# Load .env into os.environ BEFORE any project import. Several modules
-# (auth_security.JWT_SECRET, this file's secret_key, pii_crypto's key) read
-# their configuration at import time, so the environment must be populated
-# first. load_dotenv() is a no-op in production, where real environment
-# variables are set by the platform and take precedence over any .env file.
-# Subprocesses launched by /run-pipeline inherit this populated os.environ.
+# Load .env into os.environ BEFORE any project import, since several modules read config at import time; a no-op in production where real env vars take precedence.
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -30,24 +25,10 @@ base_dir = os.path.abspath(os.path.dirname(__file__))
 template_dir = os.path.join(base_dir, "templates")
 
 app = Flask(__name__, template_folder=template_dir)
-# One trusted proxy hop (Render/gunicorn): without this, Flask sees the
-# proxy's plain-HTTP side and request.is_secure is False even on HTTPS
-# deployments, which would strip the Secure flag off auth cookies there
-# (see auth_security._cookie_secure).
+# One trusted proxy hop (Render/gunicorn) so request.is_secure reflects HTTPS and auth cookies keep the Secure flag (see auth_security._cookie_secure).
 from werkzeug.middleware.proxy_fix import ProxyFix
 app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
-# Task 4: stable, environment-backed secret key
-# `os.urandom(24)` minted a FRESH key every time this module was imported.
-# Under any multi-process server (Gunicorn's `--workers N`, or even a single
-# worker that gets restarted) each process would hold a different key, so a
-# session cookie or CSRF token signed by one worker fails verification on the
-# next — users get silently logged out and forms 400 at random. The key must
-# be one shared, persistent value across every worker and restart.
-#
-# Production: set NEXUSBARRIER_SECRET_KEY to a long random string (shared by
-# all workers). Development: fall back to a fixed, clearly-non-secret constant
-# so a local run stays stable across reloads without forcing env setup —
-# announced with a warning so it can never be mistaken for production-safe.
+# Task 4: stable secret key shared across workers/restarts (a per-import os.urandom key would silently log users out); set NEXUSBARRIER_SECRET_KEY in production, fixed non-secret dev fallback with a warning.
 _secret_key = os.environ.get("NEXUSBARRIER_SECRET_KEY")
 if not _secret_key:
     print(
@@ -67,21 +48,13 @@ NO_SAR_CLOSURE_CODES = [
 ]
 SAR_CLOSURE_CODES = list(AMLService.SAR_CLOSURE_CODES)
 
-# Schema readiness check runs here — at import time — rather than only
-# inside `if __name__ == "__main__":` below. That guard never executes
-# when the app is launched via `flask run`, gunicorn, or an IDE's Flask
-# runner (all of which import this module without running it as a
-# script), which meant every page would crash on a fresh database
-# unless you happened to start the app with `python app.py` specifically.
+# Schema readiness runs at import time (not only under __main__), so the app works under flask run / gunicorn / IDE runners that import without running as a script.
 try:
     AMLService.ensure_db_ready()
 except Exception as e:
     print(f"Warning initializing DB schema mapping components: {e}")
 
-# Bootstraps the first Platform Super Admin from PLATFORM_ADMIN_USERNAME /
-# PLATFORM_ADMIN_PASSWORD env vars (no-op if unset or already created).
-# Without it the /platform routes are unreachable — safe default, no
-# credential ships in code.
+# Bootstraps the first Platform Super Admin from env vars (no-op if unset/already created); without it /platform is unreachable — safe default, no credential in code.
 try:
     auth_security.ensure_platform_admin_seed()
 except Exception as e:
@@ -91,15 +64,7 @@ except Exception as e:
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "GET":
-        # An already-signed-in user typing /login into the address bar should
-        # not see the login form (and must not have their session silently
-        # dropped) — bounce them straight to the dashboard. "Valid and active"
-        # is checked with the exact same access-token cookie + verifier that
-        # require_auth uses everywhere else, so the two can never disagree.
-        # A token that verifies but whose account/company standing was revoked
-        # after issuance is handled on the dashboard request: require_auth's
-        # live standing check clears the cookies and returns the user here,
-        # where the token is now absent and the form renders normally.
+        # An already-signed-in user hitting /login is bounced to the dashboard, checked with the same cookie/verifier as require_auth; revoked-standing tokens are handled by require_auth on the dashboard request.
         token = request.cookies.get("access_token")
         if token and auth_security.verify_access_token(token):
             session["seen_welcome"] = True
@@ -131,12 +96,7 @@ def login():
             flash("Invalid credentials.", "error")
             return redirect(url_for("login"))
 
-        # Password was right, so telling THIS person their true account
-        # state leaks nothing — these gates run only after authentication.
-        # No tokens are ever issued on either path: an unapproved user has
-        # no session to destroy because one is never created. require_auth's
-        # live standing check remains the backstop for approvals/suspensions
-        # revoked AFTER a session already exists.
+        # These gates run only after a correct password, so revealing account state leaks nothing; no token is issued on either path, with require_auth the backstop for later revocations.
         if not row["is_approved"]:
             flash("Your registration is pending administrator approval.", "error")
             return redirect(url_for("login"))
@@ -169,11 +129,7 @@ def logout():
             auth_security.revoke_all_sessions_for_user(conn, payload["sub"])
         finally:
             conn.close()
-    # Not session.clear(): the only things left in the Flask session are
-    # csrf_token and seen_welcome, neither auth-related (the JWT lives in
-    # cookies, cleared below). Clearing the whole session would also wipe
-    # seen_welcome and send a just-logged-out user back through the
-    # welcome splash instead of straight to /login.
+    # Not session.clear(): the JWT lives in cookies (cleared below); wiping the session would also drop seen_welcome and re-trigger the welcome splash.
     resp = redirect(url_for("login"))
     resp.delete_cookie("access_token")
     resp.delete_cookie("refresh_token")
@@ -215,10 +171,7 @@ def signup():
 
     conn = AMLService._connect()
     try:
-        # Counts regardless of outcome below — see auth_security's own
-        # comment on is_signup_rate_limited for why (bounds both spam
-        # account creation and using signup itself to enumerate which
-        # (company_id, username) pairs already exist).
+        # Counts regardless of outcome (see is_signup_rate_limited) — bounds spam account creation and signup-based username enumeration.
         if auth_security.is_signup_rate_limited(conn, ip):
             flash("Too many signup attempts from this network. Try again later.", "error")
             return redirect(url_for("signup"))
@@ -240,10 +193,7 @@ def signup():
             flash("Password must be at least 12 characters and include lowercase, uppercase, a number, and a symbol.", "error")
             return redirect(url_for("signup"))
 
-        # Signup can only JOIN a workspace, never create one — workspaces
-        # exist solely via platform provisioning (/platform). The error is
-        # deliberately the same for "doesn't exist" and "suspended": a
-        # public form must not confirm which workspace IDs are live.
+        # Signup can only JOIN a workspace (creation is platform-only); same error for "doesn't exist" and "suspended" so the form can't confirm which IDs are live.
         company = conn.execute(
             "SELECT status FROM companies WHERE company_id = ?", (company_id,)
         ).fetchone()
@@ -251,11 +201,7 @@ def signup():
             flash("Invalid Workspace ID.", "error")
             return redirect(url_for("signup"))
 
-        # The granted role stays fixed server-side: everyone enters as an
-        # unapproved L1_ANALYST. The toggle only fills requested_role, a display
-        # field the Tenant Admin honors with an explicit role change after
-        # approving, so a public form can't self-grant MLRO. is_approved=0 is set
-        # explicitly because migrated databases default that column to 1.
+        # Granted role is fixed server-side (everyone enters as unapproved L1_ANALYST); the toggle only fills display-only requested_role, and is_approved=0 is set explicitly since migrated DBs default it to 1.
         now = datetime.now(timezone.utc).isoformat()
         try:
             conn.execute(
@@ -283,21 +229,12 @@ def forgot_password():
     return redirect(url_for("login"))
 
 
-# Platform Super Admin (infrastructure layer only)
-# The Super Admin's identity lives in platform.db and their token carries
-# no company_id (see auth_security's platform section). The routes below
-# touch exactly two things in the main database — the companies and users
-# IDENTITY tables (provisioning/licensing metadata) — and never any
-# analytical table. No query here can return alert counts, transaction
-# volumes, decisions, or trends; the dashboard's "system health" block is
-# file sizes and engine versions, not row counts of compliance data.
+# Platform Super Admin (infrastructure only): identity lives in platform.db with no company_id; routes below touch only the companies/users identity tables, never any analytical/compliance table.
 
 @app.route("/platform/login", methods=["GET", "POST"])
 def platform_login():
     if request.method == "GET":
-        # Same already-authenticated bounce as the tenant /login above, on the
-        # platform-scoped cookie. A live Super Admin session shouldn't be sent
-        # back through the login form.
+        # Same already-authenticated bounce as tenant /login, on the platform-scoped cookie.
         token = request.cookies.get("platform_access_token")
         if token and auth_security.verify_platform_token(token):
             return redirect(url_for("platform_dashboard"))
@@ -452,12 +389,7 @@ def platform_company_status(company_id):
     return redirect(url_for("platform_dashboard"))
 
 
-# Tenant Admin: team management & access requests
-# Everything below runs through TenantScopedDB, so every read and write is
-# structurally pinned to the session's own company_id — a Tenant Admin
-# acting on another workspace's user_id affects zero rows, and the flash
-# message is the same as for a nonexistent id (no cross-tenant existence
-# oracle).
+# Tenant Admin team management & access requests — all via TenantScopedDB, pinned to the session's company_id (cross-tenant user_id affects zero rows, same flash as a nonexistent id).
 
 @app.route("/admin/team")
 @auth_security.require_auth
@@ -533,8 +465,7 @@ def admin_change_role(user_id):
         except ValueError as e:
             flash(str(e), "error")
             return redirect(url_for("admin_team"))
-        # Old-role sessions must not linger: refresh tokens die now, and
-        # the 15-minute access-token expiry bounds what's already issued.
+        # Old-role sessions must not linger: revoke refresh tokens now; 15-min access-token expiry bounds what's already issued.
         auth_security.revoke_all_sessions_for_user(conn, user_id)
         flash(f"{target['username']} is now {new_role}. Their active sessions were signed out.", "success")
     finally:
@@ -561,8 +492,7 @@ def admin_delete_user(user_id):
         if target["role"] == "TENANT_ADMIN" and db.count_active_admins() <= 1:
             flash("This is the workspace's only active admin — promote someone else to TENANT_ADMIN first.", "error")
             return redirect(url_for("admin_team"))
-        # Revoke BEFORE deleting so no window exists where the user row is
-        # gone but a live refresh token could still be presented.
+        # Revoke BEFORE deleting so no window exists where the user row is gone but a live refresh token remains.
         auth_security.revoke_all_sessions_for_user(conn, user_id)
         db.remove_user(user_id)
         flash(f"{target['username']}'s access has been removed and all their sessions revoked.", "success")
@@ -571,28 +501,7 @@ def admin_delete_user(user_id):
     return redirect(url_for("admin_team"))
 
 
-# Cooldowns on the two destructive/expensive admin actions
-# Both actions are now MLRO-only and company-scoped (see /reset-demo and
-# /run-pipeline below), but the client-side confirm() dialog on their
-# buttons is still just a UX nicety, not a real gate — a logged-in MLRO
-# could still spam either one via direct POST, so server-side cooldowns
-# remain the actual enforcement.
-#
-# Two distinct concerns get two distinct cooldowns:
-#   - /reset-demo is cheap to run but griefs OTHER visitors if spammed
-#     (wipes whatever they were mid-walkthrough on) — short cooldown is
-#     enough to stop rapid-fire abuse while still feeling instant to a
-#     legitimate single use.
-#   - /run-pipeline is expensive (regenerates 5000+ transactions, reseeds,
-#     reruns all 12 detection scenarios across the full customer base) —
-#     this is the one that can actually exhaust a free-tier instance's
-#     CPU allowance if hammered, so it gets a longer cooldown plus a
-#     "currently running" lock so a second request can't start a second
-#     pipeline run on top of one still in progress.
-#
-# Same plain-module-memory pattern as the idle-reset above — correct only
-# under a single worker process (`gunicorn -w 1`), which this app already
-# requires for the SQLite-locking reason explained there.
+# Server-side cooldowns (the real gate, not the confirm() dialog) on the two MLRO-only actions: /reset-demo gets a short one (griefs other visitors), /run-pipeline a longer one plus a running-lock (CPU-expensive); module-memory pattern, correct only under gunicorn -w 1.
 RESET_COOLDOWN_SECONDS = int(os.environ.get("RESET_COOLDOWN_SECONDS", 30))
 PIPELINE_COOLDOWN_SECONDS = int(os.environ.get("PIPELINE_COOLDOWN_SECONDS", 120))
 
@@ -637,8 +546,7 @@ def _redirect_first_time_visitors_to_welcome():
     }
     if request.endpoint in exempt_endpoints:
         return None
-    # The entire platform layer is exempt — a Super Admin provisioning
-    # tenants must never be bounced through the tenant product tour.
+    # The platform layer is exempt — a Super Admin must never be bounced through the tenant product tour.
     if request.endpoint and request.endpoint.startswith("platform"):
         return None
     if not session.get("seen_welcome"):
@@ -647,8 +555,7 @@ def _redirect_first_time_visitors_to_welcome():
 
 @app.route("/welcome")
 def welcome():
-    # Public pre-auth landing page. Only an aggregate scenario count is exposed;
-    # scenario codes, thresholds, and windows stay behind login.
+    # Public pre-auth landing page — exposes only an aggregate scenario count; codes/thresholds/windows stay behind login.
     try:
         scenario_count = len(AMLService.get_all_scenarios())
     except Exception:
@@ -696,9 +603,7 @@ def dashboard():
 def alert_queue():
     role = g.user["role"]
     company_id = g.user["company_id"]
-    # TENANT_ADMIN gets the same full-visibility queue as MLRO — root
-    # admin of the workspace sees everything in it (but aml_engine still
-    # restricts ESCALATED/DRAFT_SAR transitions to MLRO specifically).
+    # TENANT_ADMIN gets the same full-visibility queue as MLRO, but aml_engine still restricts ESCALATED/DRAFT_SAR transitions to MLRO.
     if role in ("MLRO", "TENANT_ADMIN"):
         alerts = AMLService.get_open_and_escalated_alerts(company_id)
     else:
@@ -790,10 +695,7 @@ def alert_detail(alert_id):
         except Exception:
             pass
 
-    # Unconditional (unlike related_alerts above) — this is "these other
-    # alerts share literal transaction evidence with this one", useful
-    # investigative context regardless of whether a case already exists,
-    # not a case-grouping suggestion that stops mattering once grouped.
+    # Unconditional (unlike related_alerts) — "other alerts sharing literal transaction evidence", useful context regardless of whether a case exists.
     overlapping_alerts = []
     try:
         overlapping_alerts = AMLService.find_overlapping_alerts(company_id, alert_id) or []
@@ -839,10 +741,7 @@ def claim_alert(alert_id):
 @auth_security.require_csrf
 def close_alert(alert_id):
     try:
-        # Task 1: sole-MLRO self-review attestation. A checkbox, so it's only
-        # present in the POST when actually ticked; the engine decides whether
-        # it's permitted/required, so a spurious flag on a normal closure is
-        # simply ignored (self_reviewed stays 0 unless the sole-MLRO path fires).
+        # Task 1: sole-MLRO self-review attestation checkbox — the engine decides if it's permitted/required, so a spurious flag on a normal closure is ignored.
         self_attested = request.form.get("self_review_attestation") == "on"
         AMLService.close_alert(g.user["company_id"], alert_id, g.user["sub"], request.form.get("narrative"),
                                request.form.get("closure_reason_code"), request.form.get("sar_reference"),
@@ -858,11 +757,7 @@ def close_alert(alert_id):
 def escalate_alert(alert_id):
     try:
         narrative = request.form.get("narrative", "")
-        # Same 15-char floor as bulk escalation (see /bulk-action) and the
-        # closure narrative check in transition_alert — the shared textarea
-        # in alert_detail.html enforces this client-side via minlength="15",
-        # but that's a UX nicety, not a security boundary; a direct POST
-        # bypassing the browser must be rejected here too, server-side.
+        # Same 15-char floor as bulk escalation and transition_alert's narrative check — enforced server-side too, since the client minlength is only a UX nicety.
         if len(narrative.strip()) < 15:
             flash("A narrative of at least 15 characters is required to escalate.", "error")
             return redirect(url_for("alert_detail", alert_id=alert_id))
@@ -901,9 +796,7 @@ def bulk_action():
         flash("No alerts selected.", "error")
         return redirect(request.referrer or url_for("alert_queue"))
 
-    # Item 6: bulk actions are restricted to claim + false-positive
-    # closure. Escalation and SAR filing are per-alert compliance
-    # judgments and must go through the single-alert forms.
+    # Item 6: bulk actions are restricted to claim + false-positive closure; escalation and SAR filing must go through the single-alert forms.
     if action not in ("claim", "false_positive"):
         flash(f"Unsupported bulk action: {action}. Bulk actions are limited to claim and false-positive closure.", "error")
         return redirect(request.referrer or url_for("alert_queue"))
