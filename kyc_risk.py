@@ -30,6 +30,27 @@ TIER_HIGH_MIN = 10
 TIER_MEDIUM_MIN = 5
 
 
+def _norm(value) -> str:
+    """Normalise a KYC string attribute: tolerate None, strip surrounding whitespace, upper-case.
+
+    Stripping matters for risk safety — an un-stripped "IR " or " CORPORATE" would fail the
+    equality/set-membership checks and silently *under*-score the customer.
+    """
+    return (value or "").strip().upper()
+
+
+def _as_flag(value) -> bool:
+    """Coerce a KYC boolean flag to bool.
+
+    SQLite hands back 0/1 ints, but partial/legacy or non-SQLite sources may pass strings.
+    Plain bool() treats "0"/"false" as True (they are non-empty strings), which would flag
+    every such customer as PEP/EDD — so decode the common falsey string forms explicitly.
+    """
+    if isinstance(value, str):
+        return value.strip().lower() not in ("", "0", "false", "no", "n", "none")
+    return bool(value)
+
+
 def _tier_from_score(score: int) -> str:
     if score >= TIER_HIGH_MIN:
         return "HIGH"
@@ -54,6 +75,7 @@ def calculate_initial_risk_rating(customer_dict: dict) -> dict:
     Returns:
         {
           "score":     int, 1..MAX_RISK_SCORE (capped),
+          "raw_score": int, uncapped total (>= score) — how far over the ceiling the customer sat,
           "max_score": MAX_RISK_SCORE,
           "tier":      "LOW" | "MEDIUM" | "HIGH",
           "factors":   comma-separated human-readable trigger string,
@@ -64,32 +86,32 @@ def calculate_initial_risk_rating(customer_dict: dict) -> dict:
     factors: list[str] = []
 
     # Customer type — corporates score higher: layered ownership obscures who controls the funds.
-    customer_type = (customer_dict.get("customer_type") or "").upper()
+    customer_type = _norm(customer_dict.get("customer_type"))
     if customer_type == "CORPORATE":
         score += WEIGHT_COMPLEX_ENTITY
         factors.append(f"Complex Entity Structure (+{WEIGHT_COMPLEX_ENTITY})")
 
     # Correspondent banking — its own mandatory due-diligence regime (Art. 28), stacked on the corporate weight.
-    account_category = (customer_dict.get("account_category") or "").upper()
+    account_category = _norm(customer_dict.get("account_category"))
     if account_category == "CORRESPONDENT":
         score += WEIGHT_CORRESPONDENT
         factors.append(f"Correspondent Banking Relationship (+{WEIGHT_CORRESPONDENT})")
 
     # PEP — heaviest single factor, and see the tier floor below.
-    is_pep = bool(customer_dict.get("is_pep"))
+    is_pep = _as_flag(customer_dict.get("is_pep"))
     if is_pep:
         score += WEIGHT_PEP
         factors.append(f"Politically Exposed Person Status (+{WEIGHT_PEP})")
 
     # An EDD flag already on file is itself a risk signal — someone judged this customer to need enhanced measures.
-    if customer_dict.get("edd_required"):
+    if _as_flag(customer_dict.get("edd_required")):
         score += WEIGHT_EDD_REQUIRED
         factors.append(f"Enhanced Due Diligence Required (+{WEIGHT_EDD_REQUIRED})")
 
     # Jurisdiction — nationality and residence both checked; each tier counts once, but multiple tiers can trip.
     countries = {
-        (customer_dict.get("nationality") or "").upper(),
-        (customer_dict.get("country_of_residence") or "").upper(),
+        _norm(customer_dict.get("nationality")),
+        _norm(customer_dict.get("country_of_residence")),
     }
     countries.discard("")
 
@@ -114,6 +136,7 @@ def calculate_initial_risk_rating(customer_dict: dict) -> dict:
             f"Offshore Financial Centre Nexus: {', '.join(offshore_hits)} (+{WEIGHT_JURISDICTION_OFFSHORE})"
         )
 
+    raw_score = score  # pre-cap total — preserved so a saturated 15 doesn't hide how far over the ceiling a customer sat
     score = min(score, MAX_RISK_SCORE)
     tier = _tier_from_score(score)
 
@@ -124,6 +147,7 @@ def calculate_initial_risk_rating(customer_dict: dict) -> dict:
 
     return {
         "score": score,
+        "raw_score": raw_score,
         "max_score": MAX_RISK_SCORE,
         "tier": tier,
         "factors": ", ".join(factors) if factors else "No elevated risk factors identified at onboarding",
