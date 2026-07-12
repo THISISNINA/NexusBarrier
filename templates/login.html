@@ -2,6 +2,44 @@
 content %}
 <div class="panel">
   <h2>Sign In</h2>
+
+  {% if demo_mode %}
+  <div
+    class="demo-banner"
+    style="
+      border: 1px solid rgba(109, 40, 217, 0.4);
+      background: rgba(109, 40, 217, 0.08);
+      border-radius: 8px;
+      padding: 0.85rem 1rem;
+      margin-bottom: 1.25rem;
+    "
+  >
+    <strong>Public demo — practice account</strong>
+    <p class="field-hint" style="margin: 0.4rem 0 0.6rem">
+      Sign in with the shared credentials below (already filled in for you). No
+      request needed. Once inside, use <em>Run Data Pipeline</em> to populate
+      alerts.
+    </p>
+    <dl
+      style="
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 0.15rem 0.75rem;
+        margin: 0;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.85rem;
+      "
+    >
+      <dt>Company</dt>
+      <dd style="margin: 0">{{ demo_credentials.company_id }}</dd>
+      <dt>Username</dt>
+      <dd style="margin: 0">{{ demo_credentials.username }}</dd>
+      <dt>Password</dt>
+      <dd style="margin: 0">{{ demo_credentials.password }}</dd>
+    </dl>
+  </div>
+  {% endif %}
+
   <form method="POST" action="{{ url_for('login') }}" autocomplete="off">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
     <div class="form-group">
@@ -13,6 +51,7 @@ content %}
         id="company_id"
         name="company_id"
         placeholder="e.g. acme-bank"
+        value="{{ demo_credentials.company_id if demo_mode else '' }}"
         autocapitalize="off"
         autocomplete="off"
         required
@@ -30,6 +69,7 @@ content %}
         type="text"
         id="username"
         name="username"
+        value="{{ demo_credentials.username if demo_mode else '' }}"
         autocapitalize="off"
         autocomplete="username"
         required
@@ -42,6 +82,7 @@ content %}
         type="password"
         id="password"
         name="password"
+        value="{{ demo_credentials.password if demo_mode else '' }}"
         autocomplete="current-password"
         required
       />
@@ -65,9 +106,11 @@ content %}
 <p class="auth-footnote subtle">
   <a href="{{ url_for('forgot_password') }}">Forgot password?</a>
 </p>
+{% if not demo_mode %}
 <p class="auth-footnote subtle">
   Need access? <a href="{{ url_for('signup') }}">Request an account</a>
 </p>
+{% endif %}
 <p class="auth-footnote subtle">
   Infrastructure operator?
   <a href="{{ url_for('platform_login') }}">Platform console</a>

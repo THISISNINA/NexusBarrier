@@ -62,6 +62,30 @@ app.secret_key = _secret_key
 app.jinja_env.globals["csrf_token"] = auth_security.get_csrf_token
 
 
+# Demo mode (DEMO_MODE truthy): turns this deployment into a public showcase.
+# Public account requests are turned off and the login page surfaces a shared
+# practice account so a visitor can sign in without a workspace invite. The
+# account is a real TENANT_ADMIN in the LEGACY_COMPANY_ID workspace — the same
+# workspace the demo data pipeline writes to — seeded at startup only when it
+# doesn't already exist (see _ensure_demo_user_seed). Off by default, so a
+# normal tenant deployment never ships a shared credential.
+DEMO_COMPANY_ID = auth_security.LEGACY_COMPANY_ID
+DEMO_USERNAME = "demo"
+DEMO_PASSWORD = os.environ.get("DEMO_PASSWORD", "NexusDemo!2026")
+
+
+def _demo_mode() -> bool:
+    return os.environ.get("DEMO_MODE", "").strip().lower() in ("1", "true", "yes", "on")
+
+
+app.jinja_env.globals["demo_mode"] = _demo_mode()
+app.jinja_env.globals["demo_credentials"] = {
+    "company_id": DEMO_COMPANY_ID,
+    "username": DEMO_USERNAME,
+    "password": DEMO_PASSWORD,
+}
+
+
 @app.after_request
 def _set_security_headers(response):
     """Defense-in-depth response headers on every response. Server-rendered
@@ -130,6 +154,32 @@ try:
     auth_security.ensure_platform_admin_seed()
 except Exception as e:
     print(f"Warning seeding platform admin: {e}")
+
+
+def _ensure_demo_user_seed() -> None:
+    """DEMO_MODE only: creates the shared practice account (a pre-approved
+    TENANT_ADMIN in the legacy-demo workspace) so visitors can sign in with the
+    credentials shown on the login page. No-op when demo mode is off or the
+    account already exists — a restart never resets a changed password, and no
+    credential is ever created in a normal deployment."""
+    if not _demo_mode():
+        return
+    conn = AMLService._connect()
+    try:
+        exists = conn.execute(
+            "SELECT 1 FROM users WHERE company_id = ? AND username = ?",
+            (DEMO_COMPANY_ID, DEMO_USERNAME),
+        ).fetchone()
+        if not exists:
+            auth_security.create_tenant_admin(conn, DEMO_COMPANY_ID, DEMO_USERNAME, DEMO_PASSWORD)
+    finally:
+        conn.close()
+
+
+try:
+    _ensure_demo_user_seed()
+except Exception as e:
+    print(f"Warning seeding demo user: {e}")
 
 # Real auth
 @app.route("/login", methods=["GET", "POST"])
@@ -222,6 +272,13 @@ def _password_meets_requirements(password: str) -> bool:
 
 @app.route("/signup", methods=["GET", "POST"])
 def signup():
+    # Public account requests are turned off in demo mode (GET and POST alike):
+    # visitors sign in with the shared practice account instead.
+    if _demo_mode():
+        flash("This is a public demo — new-account requests are turned off. "
+              "Sign in with the demo credentials shown on the login page.", "error")
+        return redirect(url_for("login"))
+
     if request.method == "GET":
         return render_template("signup.html")
 
