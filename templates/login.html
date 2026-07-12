@@ -14,29 +14,47 @@ content %}
       margin-bottom: 1.25rem;
     "
   >
-    <strong>Public demo — practice account</strong>
-    <p class="field-hint" style="margin: 0.4rem 0 0.6rem">
-      Sign in with the shared credentials below (already filled in for you). No
-      request needed. Once inside, use <em>Run Data Pipeline</em> to populate
-      alerts.
+    <strong>Public demo — practice accounts</strong>
+    <p class="field-hint" style="margin: 0.4rem 0 0.7rem">
+      One login per role, so you can walk the full workflow. All use workspace
+      <code>{{ demo_company_id }}</code> and password
+      <code>{{ demo_password }}</code>. The <strong>MLRO</strong> is filled in
+      below — sign in, click <em>Run Data Pipeline</em> to generate alerts, then
+      sign out and try another role.
     </p>
-    <dl
+    <table
       style="
-        display: grid;
-        grid-template-columns: auto 1fr;
-        gap: 0.15rem 0.75rem;
-        margin: 0;
-        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-        font-size: 0.85rem;
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.82rem;
       "
     >
-      <dt>Company</dt>
-      <dd style="margin: 0">{{ demo_credentials.company_id }}</dd>
-      <dt>Username</dt>
-      <dd style="margin: 0">{{ demo_credentials.username }}</dd>
-      <dt>Password</dt>
-      <dd style="margin: 0">{{ demo_credentials.password }}</dd>
-    </dl>
+      <thead>
+        <tr style="text-align: left; color: inherit; opacity: 0.7">
+          <th style="padding: 0.2rem 0.5rem 0.2rem 0">Role</th>
+          <th style="padding: 0.2rem 0.5rem">Username</th>
+          <th style="padding: 0.2rem 0">What they can do</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for acct in demo_accounts %}
+        <tr style="border-top: 1px solid rgba(109, 40, 217, 0.18)">
+          <td style="padding: 0.35rem 0.5rem 0.35rem 0; white-space: nowrap">
+            <strong>{{ acct.label }}</strong>
+          </td>
+          <td
+            style="
+              padding: 0.35rem 0.5rem;
+              font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            "
+          >
+            {{ acct.username }}
+          </td>
+          <td style="padding: 0.35rem 0">{{ acct.blurb }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
   {% endif %}
 
@@ -51,7 +69,7 @@ content %}
         id="company_id"
         name="company_id"
         placeholder="e.g. acme-bank"
-        value="{{ demo_credentials.company_id if demo_mode else '' }}"
+        value="{{ demo_company_id if demo_mode else '' }}"
         autocapitalize="off"
         autocomplete="off"
         required
@@ -69,7 +87,7 @@ content %}
         type="text"
         id="username"
         name="username"
-        value="{{ demo_credentials.username if demo_mode else '' }}"
+        value="{{ demo_prefill_username if demo_mode else '' }}"
         autocapitalize="off"
         autocomplete="username"
         required
@@ -82,7 +100,7 @@ content %}
         type="password"
         id="password"
         name="password"
-        value="{{ demo_credentials.password if demo_mode else '' }}"
+        value="{{ demo_password if demo_mode else '' }}"
         autocomplete="current-password"
         required
       />

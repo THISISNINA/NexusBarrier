@@ -70,8 +70,24 @@ app.jinja_env.globals["csrf_token"] = auth_security.get_csrf_token
 # doesn't already exist (see _ensure_demo_user_seed). Off by default, so a
 # normal tenant deployment never ships a shared credential.
 DEMO_COMPANY_ID = auth_security.LEGACY_COMPANY_ID
-DEMO_USERNAME = "demo"
 DEMO_PASSWORD = os.environ.get("DEMO_PASSWORD", "NexusDemo!2026")
+# One practice account per role so a visitor can walk the whole workflow:
+# the L1 analyst claims and investigates alerts and escalates them; the MLRO
+# reviews escalations, drafts and files SARs, and runs the data pipeline; the
+# workspace admin adds team management on top. All share the legacy-demo
+# workspace and DEMO_PASSWORD — only the username differs.
+DEMO_ACCOUNTS = [
+    {"role": "L1_ANALYST", "username": "analyst", "label": "Analyst (L1)",
+     "blurb": "Claim and investigate alerts, then escalate to the MLRO."},
+    {"role": "MLRO", "username": "mlro", "label": "MLRO",
+     "blurb": "Review escalations, draft and file SARs, run the data pipeline."},
+    {"role": "TENANT_ADMIN", "username": "admin", "label": "Workspace Admin",
+     "blurb": "Full queue visibility plus team management."},
+]
+# The login form is prefilled with the MLRO: on a fresh deploy the queue is
+# empty, and the MLRO is the role that can click Run Data Pipeline to generate
+# the demo alerts before anyone explores the analyst view.
+DEMO_PREFILL_USERNAME = "mlro"
 
 
 def _demo_mode() -> bool:
@@ -79,11 +95,10 @@ def _demo_mode() -> bool:
 
 
 app.jinja_env.globals["demo_mode"] = _demo_mode()
-app.jinja_env.globals["demo_credentials"] = {
-    "company_id": DEMO_COMPANY_ID,
-    "username": DEMO_USERNAME,
-    "password": DEMO_PASSWORD,
-}
+app.jinja_env.globals["demo_company_id"] = DEMO_COMPANY_ID
+app.jinja_env.globals["demo_password"] = DEMO_PASSWORD
+app.jinja_env.globals["demo_accounts"] = DEMO_ACCOUNTS
+app.jinja_env.globals["demo_prefill_username"] = DEMO_PREFILL_USERNAME
 
 
 @app.after_request
@@ -157,23 +172,17 @@ except Exception as e:
 
 
 def _ensure_demo_user_seed() -> None:
-    """DEMO_MODE only: creates the shared practice account (a pre-approved
-    TENANT_ADMIN in the legacy-demo workspace) so visitors can sign in with the
-    credentials shown on the login page. No-op when demo mode is off or the
-    account already exists — a restart never resets a changed password, and no
-    credential is ever created in a normal deployment."""
+    """DEMO_MODE only: creates the shared practice accounts (one pre-approved
+    user per role in the legacy-demo workspace) so visitors can sign in with the
+    credentials shown on the login page and walk the full analyst→MLRO workflow.
+    No-op when demo mode is off or an account already exists — a restart never
+    resets a changed password, and no credential is ever created in a normal
+    deployment."""
     if not _demo_mode():
         return
-    conn = AMLService._connect()
-    try:
-        exists = conn.execute(
-            "SELECT 1 FROM users WHERE company_id = ? AND username = ?",
-            (DEMO_COMPANY_ID, DEMO_USERNAME),
-        ).fetchone()
-        if not exists:
-            auth_security.create_tenant_admin(conn, DEMO_COMPANY_ID, DEMO_USERNAME, DEMO_PASSWORD)
-    finally:
-        conn.close()
+    auth_security.seed_demo_users(
+        [(a["username"], DEMO_PASSWORD, a["role"]) for a in DEMO_ACCOUNTS]
+    )
 
 
 try:

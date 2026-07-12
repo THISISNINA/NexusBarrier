@@ -294,6 +294,39 @@ def create_tenant_admin(conn, company_id: str, username: str, password: str) -> 
     return user_id
 
 
+def seed_demo_users(accounts) -> None:
+    """DEMO_MODE only: idempotently create the shared practice accounts in the
+    legacy-demo workspace so a visitor can walk the whole workflow across roles.
+    `accounts` is an iterable of (username, password, role) — each is inserted
+    pre-approved and ACTIVE (approved_by='DEMO_SEED') if that username doesn't
+    already exist, so a restart never resets a changed password. Mirrors the
+    local-aml_engine-import pattern used elsewhere here to dodge the circular
+    import (aml_engine imports this module at module level)."""
+    import aml_engine
+    conn = sqlite3.connect(aml_engine.DB_PATH)
+    try:
+        now = datetime.now(timezone.utc).isoformat()
+        for username, password, role in accounts:
+            if role not in TENANT_ROLES:
+                raise ValueError(f"Invalid demo role: {role}")
+            exists = conn.execute(
+                "SELECT 1 FROM users WHERE company_id = ? AND username = ?",
+                (LEGACY_COMPANY_ID, username),
+            ).fetchone()
+            if exists:
+                continue
+            conn.execute(
+                """INSERT INTO users (user_id, company_id, username, password_hash, role,
+                                      status, is_approved, approved_by, approved_at, created_at)
+                   VALUES (?, ?, ?, ?, ?, 'ACTIVE', 1, 'DEMO_SEED', ?, ?)""",
+                (str(uuid.uuid4()), LEGACY_COMPANY_ID, username,
+                 generate_password_hash(password), role, now, now),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def set_company_status(conn, company_id: str, status: str) -> None:
     """ACTIVE / SUSPENDED — the Super Admin's licensing lever. Suspension
     takes effect on every user's very next request, not their next login,
