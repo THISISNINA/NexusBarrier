@@ -14,8 +14,27 @@ import jwt
 from flask import g, request, redirect, url_for, session, abort, flash
 from werkzeug.security import generate_password_hash, check_password_hash
 
-# From env when deployed, else a fresh random key per process (restart signs everyone out — safer than a shared hardcoded key).
-JWT_SECRET = os.environ.get("JWT_SECRET") or secrets.token_hex(32)
+def _is_production() -> bool:
+    """See app._is_production — duplicated per this codebase's no-cross-module-
+    coupling convention (same rationale as _add_column_if_missing)."""
+    return (
+        os.environ.get("NEXUSBARRIER_ENV", "development").strip().lower() == "production"
+        or bool(os.environ.get("RENDER"))
+    )
+
+
+# From env when deployed, else a fresh random key per process (dev only). In
+# production JWT_SECRET is mandatory: a per-process random key would differ
+# between gunicorn workers, so a token issued by one worker fails verification
+# on another — every request would intermittently bounce to /login.
+JWT_SECRET = os.environ.get("JWT_SECRET")
+if not JWT_SECRET:
+    if _is_production():
+        raise RuntimeError(
+            "JWT_SECRET must be set in production. Refusing to start with a "
+            "per-process random key (it differs across workers and breaks auth)."
+        )
+    JWT_SECRET = secrets.token_hex(32)
 JWT_ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRY_MINUTES = 15     # short-lived — this is what limits blast radius if one leaks
 REFRESH_TOKEN_EXPIRY_DAYS = 7

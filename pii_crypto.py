@@ -19,6 +19,15 @@ _ENV_KEY = "NEXUSBARRIER_PII_KEY"
 _DEV_SEED = "nexusbarrier-development-pii-key-do-not-use-in-production"
 
 
+def _is_production() -> bool:
+    """See app._is_production — duplicated per this codebase's no-cross-module-
+    coupling convention (same rationale as _add_column_if_missing)."""
+    return (
+        os.environ.get("NEXUSBARRIER_ENV", "development").strip().lower() == "production"
+        or bool(os.environ.get("RENDER"))
+    )
+
+
 def _derive_fernet_key(material: str) -> bytes:
     """Turn arbitrary text into a valid 32-byte urlsafe-base64 Fernet key.
     Used only for the development fallback; production keys are supplied
@@ -48,6 +57,14 @@ def _resolve_keys() -> MultiFernet:
                 f"comma-separated list of them): {exc}"
             ) from exc
 
+    if _is_production():
+        # The dev key is derived from a public seed in source — using it in
+        # production would mean customer PII is "encrypted" with a key anyone
+        # can reconstruct. Refuse rather than provide false protection.
+        raise RuntimeError(
+            f"{_ENV_KEY} must be set in production. Refusing to fall back to the "
+            "public development PII key (it provides no real protection for PII at rest)."
+        )
     log.warning(
         "%s is not set — falling back to a DETERMINISTIC development PII key. "
         "This key is derived from a public seed in source and provides NO real "

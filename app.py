@@ -1,3 +1,4 @@
+import logging
 import os
 
 # Load .env into os.environ BEFORE any project import, since several modules read config at import time; a no-op in production where real env vars take precedence.
@@ -28,9 +29,29 @@ app = Flask(__name__, template_folder=template_dir)
 # One trusted proxy hop (Render/gunicorn) so request.is_secure reflects HTTPS and auth cookies keep the Secure flag (see auth_security._cookie_secure).
 from werkzeug.middleware.proxy_fix import ProxyFix
 app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
+def _is_production() -> bool:
+    """True in any deployed environment. Explicit NEXUSBARRIER_ENV=production is
+    the intended signal; RENDER (set automatically on Render) is a backstop so a
+    deploy that forgets the flag still hard-fails on missing secrets rather than
+    silently running on the public dev fallbacks. Duplicated verbatim in
+    auth_security and pii_crypto — a one-liner kept independent per this
+    codebase's own no-cross-module-coupling convention."""
+    return (
+        os.environ.get("NEXUSBARRIER_ENV", "development").strip().lower() == "production"
+        or bool(os.environ.get("RENDER"))
+    )
+
+
 # Task 4: stable secret key shared across workers/restarts (a per-import os.urandom key would silently log users out); set NEXUSBARRIER_SECRET_KEY in production, fixed non-secret dev fallback with a warning.
 _secret_key = os.environ.get("NEXUSBARRIER_SECRET_KEY")
 if not _secret_key:
+    if _is_production():
+        # Never boot production on the public dev key: sessions and CSRF tokens
+        # would be forgeable by anyone who has read the source.
+        raise RuntimeError(
+            "NEXUSBARRIER_SECRET_KEY must be set in production. Refusing to start "
+            "on the built-in development secret key (sessions/CSRF would be forgeable)."
+        )
     print(
         "WARNING: NEXUSBARRIER_SECRET_KEY is not set — using a fixed development "
         "secret key. Set NEXUSBARRIER_SECRET_KEY to a random value in any "
@@ -39,6 +60,56 @@ if not _secret_key:
     _secret_key = "nexusbarrier-development-secret-key-not-for-production"
 app.secret_key = _secret_key
 app.jinja_env.globals["csrf_token"] = auth_security.get_csrf_token
+
+
+@app.after_request
+def _set_security_headers(response):
+    """Defense-in-depth response headers on every response. Server-rendered
+    Jinja2 autoescaping already covers most reflected XSS; these harden the
+    rest of the surface for a PII/compliance app:
+      - CSP: default-src 'self' still blocks loading external/attacker scripts
+        and confines fetch/XHR/form exfiltration to this origin. script-src and
+        style-src carry 'unsafe-inline' because the templates use inline
+        <script> blocks AND inline on*="" event-handler attributes (the latter
+        can't be nonce-allowlisted at all). Tightening script-src to nonces is
+        follow-up work that requires rewriting those handlers as addEventListener;
+        until then CSP here is meaningful hardening, NOT full XSS lockdown.
+      - frame-ancestors 'none' + X-Frame-Options: anti-clickjacking.
+      - object-src 'none': no legacy plugin/embed vectors.
+      - nosniff: stop MIME-type confusion.
+      - Referrer-Policy: don't leak workspace/alert IDs in the Referer header.
+      - HSTS: only emitted over real HTTPS (never on plain-HTTP local dev,
+        where it would pin the dev host to https and break the next visit).
+    """
+    response.headers.setdefault(
+        "Content-Security-Policy",
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; object-src 'none'; "
+        "frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+    )
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    if request.is_secure:
+        response.headers.setdefault(
+            "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
+        )
+    return response
+
+
+log = logging.getLogger("nexusbarrier.app")
+
+
+def _log_and_flash(user_message: str) -> None:
+    """Log the active exception (with traceback) server-side, then flash the
+    user a generic message. Raw exception text can carry file paths, SQL
+    fragments, or schema detail that must not reach an end user of a
+    PII/compliance app. Call only from inside an `except` block — log.exception
+    picks up the current exception automatically."""
+    log.exception("Handled error surfaced to user: %s", user_message)
+    flash(user_message, "error")
 NO_SAR_CLOSURE_CODES = [
     "FALSE_POSITIVE",
     "LEGITIMATE_BUSINESS",
@@ -534,8 +605,8 @@ def reset_demo():
         AMLService.reset_demo_data(g.user["company_id"])
         _reset_state["last_run_at"] = time.time()
         flash("Your workspace's demo data has been reset. Run the data pipeline below to start fresh.", "success")
-    except Exception as e:
-        flash(f"Reset failed: {e}", "error")
+    except Exception:
+        _log_and_flash("Reset failed. Please try again, or contact support if this keeps happening.")
     return redirect(url_for("dashboard"))
 
 @app.before_request
@@ -828,8 +899,8 @@ def create_case(alert_id):
     try:
         case_id = AMLService.create_case(g.user["company_id"], alert_id)
         flash(f"Case created successfully: {case_id}", "success")
-    except Exception as e:
-        flash(f"Error creating case: {str(e)}", "error")
+    except Exception:
+        _log_and_flash("Could not create the case. Please try again.")
     return redirect(url_for("alert_detail", alert_id=alert_id))
 
 @app.route("/case/<case_id>/link/<alert_id>", methods=["POST"])
@@ -841,8 +912,8 @@ def link_alert_to_case(case_id, alert_id):
         flash("Alert linked to case.", "success")
     except ValueError as e:
         flash(str(e), "error")
-    except Exception as e:
-        flash(f"Unexpected error: {e}", "error")
+    except Exception:
+        _log_and_flash("Could not link the alert to the case. Please try again.")
     return redirect(url_for("alert_detail", alert_id=alert_id))
 
 @app.route("/case/<case_id>")
@@ -855,8 +926,8 @@ def case_detail(case_id):
         return render_template("case_detail.html", case=result["case"], alerts=result["alerts"])
     except HTTPException:
         raise
-    except Exception as e:
-        flash(f"Error accessing case records: {e}", "error")
+    except Exception:
+        _log_and_flash("Could not open that case. Please try again.")
         return redirect(url_for("alert_queue"))
 
 @app.route("/run-pipeline", methods=["POST"])
@@ -882,8 +953,8 @@ def run_pipeline():
         subprocess.run(["python", "aml_loader.py", company_id], cwd=root_dir, check=True)
         subprocess.run(["python", "aml_engine.py", company_id], cwd=root_dir, check=True)
         flash("Data pipeline executed successfully! Your workspace's data has been regenerated.", "success")
-    except Exception as e:
-        flash(f"Pipeline Execution Failed: {str(e)}", "error")
+    except Exception:
+        _log_and_flash("The data pipeline failed to complete. Check the server logs for details.")
     finally:
         _pipeline_state["running"] = False
         _pipeline_state["last_run_at"] = time.time()
@@ -932,8 +1003,8 @@ def update_case_narrative(case_id):
     try:
         AMLService.update_case_narrative(g.user["company_id"], case_id, request.form.get("case_narrative", ""))
         flash("Case narrative updated.", "success")
-    except Exception as e:
-        flash(f"Error updating case narrative: {e}", "error")
+    except Exception:
+        _log_and_flash("Could not update the case narrative. Please try again.")
     return redirect(url_for("case_detail", case_id=case_id))
 
 @app.route("/customers")
@@ -1061,4 +1132,10 @@ def export_sla_report_pdf():
     )
 
 if __name__ == "__main__":
-    app.run(debug=True, host="127.0.0.1", port=5000)
+    # Debug is OPT-IN via FLASK_DEBUG, never on by default: Werkzeug's debug
+    # console is remote code execution to anyone who can reach a traceback, so
+    # a stray `python app.py` in a real environment must not enable it. Local
+    # dev sets FLASK_DEBUG=1 explicitly. (Production runs under gunicorn and
+    # never reaches this block at all.)
+    _debug = os.environ.get("FLASK_DEBUG", "").strip().lower() in ("1", "true", "yes", "on")
+    app.run(debug=_debug, host="127.0.0.1", port=5000)
