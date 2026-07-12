@@ -875,7 +875,7 @@ a:hover {
   color: var(--red);
 }
 .form-group textarea,
-.form-group input,
+.form-group input:not([type="checkbox"]):not([type="radio"]),
 .form-group select {
   width: 100%;
   background: var(--bg-panel);
